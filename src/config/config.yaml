@@ -1,0 +1,25 @@
+apigw:
+  - name: uias
+    server:
+      - location:
+          path: /v1/uias/user/signin
+          backend:
+            host: 'http://10.10.10.14:18180'
+            url: /internal/v1/uias/user/signin
+      - location:
+          path: /v1/uias/user/register
+          backend:
+            host: 'http://10.10.10.14:18180'
+            url: /internal/v1/uias/user/register
+      - location:
+          path: /uias
+          backend:
+            host: 'http://10.10.10.14:18180'
+            url: /
+  - name: newxxx
+    server:
+      - location:
+          path: /outs
+          backend:
+            host: 'http://10.10.10.14:18180'
+            url: /internal/v1/xxx/user/signin
