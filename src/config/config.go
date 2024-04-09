@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 
@@ -43,12 +44,34 @@ type Backend struct {
 	Url  string `yaml:"url"`
 }
 
+var (
+	//Version 项目版本信息
+	Version = ""
+	//GoVersion Go版本信息
+	GoVersion = ""
+	//GitCommit git提交commmit id
+	GitCommit = ""
+)
+
+func PrintVersion() {
+	fmt.Printf("Version: %s\n", Version)
+	fmt.Printf("Go Version: %s\n", GoVersion)
+	fmt.Printf("Git Commit: %s\n", GitCommit)
+	os.Exit(0)
+}
+
 // InitConfig 初始化配置
 func InitConfig() *Config {
 	var _cfg Config
 	var cfgPath string
+	var printVersion bool
 	flag.StringVar(&cfgPath, "f", "config.yaml", "Configuration file path")
+	flag.BoolVar(&printVersion, "version", false, "print program build version")
 	flag.Parse()
+	if printVersion {
+		PrintVersion()
+	}
+
 	log.Println("Read configuration file:", cfgPath)
 
 	configData, err := os.ReadFile(cfgPath)
