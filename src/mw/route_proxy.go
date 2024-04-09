@@ -13,6 +13,10 @@ import (
 	"github.com/hertz-contrib/sessions"
 )
 
+func tokenRenewal(token string) (string, error) {
+	return token, nil
+}
+
 // 反向代理的逻辑处理
 // 适用于浏览器用户登录后的接口调用
 // 统一提权，向上游请求时，在请求头中添加token
@@ -31,6 +35,18 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			if ok {
 				// 转换成功，可以使用
 				headers["X-Auth-Token"] = XSubjectToken
+				// 保存一次session，防止过期
+				session.Set("X-Subject-Token", XSubjectToken)
+				_ = session.Save()
+			}
+			// token 续签
+			if 1 == 2 {
+				newtoken, err := tokenRenewal(XSubjectToken)
+				if err != nil {
+					log.Println()
+				}
+				session.Set("X-Subject-Token", newtoken)
+				_ = session.Save()
 			}
 
 			// 去除url前缀
