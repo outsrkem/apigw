@@ -16,6 +16,7 @@ import (
 )
 
 // @router /uias/v1/user/signin [POST]
+
 func UiasSignin(c context.Context, ctx *app.RequestContext) {
 	session := sessions.Default(ctx)
 	islogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("islogin")))
@@ -32,10 +33,14 @@ func UiasSignin(c context.Context, ctx *app.RequestContext) {
 	body1, _ := ctx.Body()
 	payload := strings.NewReader(string(body1))
 
-	// 发送请求
-	answer, err := mw.DoHttp(headers, method, host+newUrl, payload)
+	//	发送http请求
+	reverseproxy := &mw.DoHttpRes{}
+	res, _ := reverseproxy.NewDoHttpRes(headers, method, host+newUrl, payload)
+	answer, err := reverseproxy.DoHttpV1(res)
 	if err != nil {
 		log.Println(err)
+		ctx.JSON(500, mw.NewResMessage(500, "The back-end service is abnormal."))
+		return
 	}
 	// 不知道defer放这里会不会有问题
 	defer answer.Body.Close()
