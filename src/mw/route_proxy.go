@@ -52,10 +52,14 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			// 去除url前缀
 			newUrl := strings.TrimPrefix(string(ctx.Path()), rUrl)
 
-			// 发送请求
-			answer, err := DoHttp(headers, method, host+newUrl, payload)
+			// 发送http请求
+			reverseproxy := &DoHttpRes{}
+			res, _ := reverseproxy.NewDoHttpRes(headers, method, host+newUrl, payload)
+			answer, err := reverseproxy.DoHttpV1(res)
 			if err != nil {
 				log.Println(err)
+				ctx.JSON(500, NewResMessage(500, "The back-end service is abnormal."))
+				return
 			}
 
 			// 不知道defer放这里会不会有问题
