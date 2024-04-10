@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/hertz-contrib/sessions"
 
 	"apigw/src/mw"
+	"apigw/src/pkg/proxy"
 )
 
 // @router /uias/v1/user/signin [POST]
@@ -21,7 +23,7 @@ func UiasSignin(c context.Context, ctx *app.RequestContext) {
 	session := sessions.Default(ctx)
 	islogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("islogin")))
 	if islogin {
-		ctx.JSON(401, mw.NewResMessage(400, "User logged in."))
+		mw.ResponseBody(ctx, http.StatusOK, "User logged in.")
 		return
 	}
 	log.Println("login")
@@ -34,12 +36,13 @@ func UiasSignin(c context.Context, ctx *app.RequestContext) {
 	payload := strings.NewReader(string(body1))
 
 	//	发送http请求
-	reverseproxy := &mw.DoHttpRes{}
-	res, _ := reverseproxy.NewDoHttpRes(headers, method, host+newUrl, payload)
-	answer, err := reverseproxy.DoHttpV1(res)
+	proxy_pass := host + newUrl
+	proxy, _ := proxy.NewProxy()
+	res, _ := proxy.NewProxyRes(headers, method, proxy_pass, payload)
+	answer, err := proxy.DoHttpV1(res)
 	if err != nil {
 		log.Println(err)
-		ctx.JSON(500, mw.NewResMessage(500, "The back-end service is abnormal."))
+		mw.ResponseBody(ctx, http.StatusInternalServerError, "The back-end service is abnormal.")
 		return
 	}
 	// 不知道defer放这里会不会有问题
@@ -65,7 +68,7 @@ func UiasSignin(c context.Context, ctx *app.RequestContext) {
 		session.Set("islogin", true)
 		_ = session.Save()
 	}
-	ctx.JSON(sCode, result)
+	mw.ResponseBody(ctx, sCode, result)
 }
 
 // @router /uias/v1/user/logout [POST]
@@ -74,10 +77,10 @@ func UiasLogout(c context.Context, ctx *app.RequestContext) {
 	islogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("islogin")))
 	if islogin {
 		log.Println("logout successfully.")
-		session.Delete("islogin")
+		session.Clear()
 		_ = session.Save()
-		ctx.JSON(200, mw.NewResMessage(200, nil))
+		mw.ResponseBody(ctx, http.StatusOK, nil)
 		return
 	}
-	ctx.JSON(400, mw.NewResMessage(401, "User not logged in."))
+	mw.ResponseBody(ctx, http.StatusBadRequest, "User not logged in.")
 }

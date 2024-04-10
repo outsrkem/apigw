@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/sessions"
+
+	"apigw/src/pkg/proxy"
 )
 
 func tokenRenewal(token string) (string, error) {
@@ -50,15 +53,13 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			}
 
 			// 去除url前缀
-			newUrl := strings.TrimPrefix(string(ctx.Path()), rUrl)
-
-			// 发送http请求
-			reverseproxy := &DoHttpRes{}
-			res, _ := reverseproxy.NewDoHttpRes(headers, method, host+newUrl, payload)
-			answer, err := reverseproxy.DoHttpV1(res)
+			proxy_pass := host + strings.TrimPrefix(string(ctx.Path()), rUrl)
+			proxy, _ := proxy.NewProxy()
+			res, _ := proxy.NewProxyRes(headers, method, proxy_pass, payload)
+			answer, err := proxy.DoHttpV1(res)
 			if err != nil {
 				log.Println(err)
-				ctx.JSON(500, NewResMessage(500, "The back-end service is abnormal."))
+				ResponseBody(ctx, http.StatusInternalServerError, "The back-end service is abnormal.")
 				return
 			}
 
@@ -78,10 +79,10 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			}
 			// 设置响应状态码
 			sCode := answer.StatusCode
-			ctx.JSON(sCode, result)
+			ResponseBody(ctx, sCode, result)
 			return
 		}
 		// 用户没有登录
-		ctx.JSON(401, NewResMessage(401, nil))
+		ResponseBody(ctx, http.StatusUnauthorized, nil)
 	}
 }

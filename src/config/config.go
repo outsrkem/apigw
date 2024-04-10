@@ -2,79 +2,38 @@ package config
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 
 	"gopkg.in/yaml.v2"
 )
 
-// Config 配置结构体
-type Config struct {
-	Apigw Apigw `yaml:"apigw"`
+type FlagArgs struct {
+	CfgPath      string
+	PrintVersion bool
 }
 
-type Apigw struct {
-	Redis Redis   `yaml:"redis"`
-	Rroxy []Proxy `yaml:"proxy"`
-}
-
-type Redis struct {
-	Host     string `yaml:"host"`
-	Port     string `yaml:"port"`
-	Password string `yaml:"password"`
-}
-
-type Proxy struct {
-	Name   string   `yaml:"name"`
-	Server []Server `yaml:"server"`
-}
-
-type Server struct {
-	Location Location `yaml:"location"`
-}
-
-type Location struct {
-	Path    string  `yaml:"path"`
-	Backend Backend `yaml:"backend"`
-}
-
-type Backend struct {
-	Host string `yaml:"host"`
-	Url  string `yaml:"url"`
-}
-
-var (
-	//Version 项目版本信息
-	Version = ""
-	//GoVersion Go版本信息
-	GoVersion = ""
-	//GitCommit git提交commmit id
-	GitCommit = ""
-)
-
-func PrintVersion() {
-	fmt.Printf("Version: %s\n", Version)
-	fmt.Printf("Go Version: %s\n", GoVersion)
-	fmt.Printf("Git Commit: %s\n", GitCommit)
-	os.Exit(0)
+func NewFlagArgs() *FlagArgs {
+	fa := &FlagArgs{}
+	flag.StringVar(&fa.CfgPath, "f", "config.yaml", "Configuration file path")
+	flag.BoolVar(&fa.PrintVersion, "version", false, "print program version")
+	flag.Parse()
+	return fa
 }
 
 // InitConfig 初始化配置
 func InitConfig() *Config {
 	var _cfg Config
-	var cfgPath string
-	var printVersion bool
-	flag.StringVar(&cfgPath, "f", "config.yaml", "Configuration file path")
-	flag.BoolVar(&printVersion, "version", false, "print program build version")
-	flag.Parse()
-	if printVersion {
-		PrintVersion()
+	fa := NewFlagArgs()
+
+	if fa.PrintVersion {
+		versions, _ := newVersions(Version, GoVersion, GitCommit)
+		versions.Print(versions)
 	}
 
-	log.Println("Read configuration file:", cfgPath)
+	log.Println("Read configuration file:", fa.CfgPath)
 
-	configData, err := os.ReadFile(cfgPath)
+	configData, err := os.ReadFile(fa.CfgPath)
 	if err != nil {
 		log.Println("读取配置文件失败:", err)
 		os.Exit(1)
@@ -86,7 +45,6 @@ func InitConfig() *Config {
 		os.Exit(1)
 	}
 	// proxy := _cfg.Apigw.Rroxy
-	// redis := _cfg.Apigw.Redis
 	// for _, apigw := range proxy {
 	//     fmt.Println("")
 	//     fmt.Println(apigw.Name)

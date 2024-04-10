@@ -105,6 +105,9 @@ github.com/henrylee2cn/ameda
 ## explicit; go 1.12
 github.com/henrylee2cn/goutil
 github.com/henrylee2cn/goutil/errors
+# github.com/hertz-contrib/logger/accesslog v0.0.0-20240128134225-6b18af47a115
+## explicit; go 1.16
+github.com/hertz-contrib/logger/accesslog
 # github.com/hertz-contrib/sessions v1.0.3
 ## explicit; go 1.16
 github.com/hertz-contrib/sessions

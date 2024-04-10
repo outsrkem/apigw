@@ -1,3 +1,7 @@
+/*
+ * Copyright
+ */
+
 package main
 
 import (
@@ -5,19 +9,27 @@ import (
 
 	"apigw/src/config"
 	"apigw/src/mw"
+	"apigw/src/pkg/session"
 	"apigw/src/route"
 )
+
+func init() {
+
+}
 
 func main() {
 
 	// 解析配置文件
 	cfgApigw := config.InitConfig()
+	app := cfgApigw.Apigw.App
 	proxy := cfgApigw.Apigw.Rroxy
 	redis := cfgApigw.Apigw.Redis
 
 	// 初始化hertz
-	h := server.Default(server.WithHostPorts("0.0.0.0:8080"))
-	mw.InitSession(h, &redis)
+	// app.Bind 监听参数：default 127.0.0.1:8080
+	h := server.Default(server.WithHostPorts(app.Bind))
+	mw.NewAccessLog(h)
+	session.InitSession(h, &redis)
 	route.RouteLocal(h)
 	route.RouteProxy(h, &proxy)
 	// 启动服务

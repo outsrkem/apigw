@@ -45,6 +45,8 @@ github.com/henrylee2cn/ameda v1.4.10 h1:JdvI2Ekq7tapdPsuhrc4CaFiqw6QXFvZIULWJgQy
 github.com/henrylee2cn/ameda v1.4.10/go.mod h1:liZulR8DgHxdK+MEwvZIylGnmcjzQ6N6f2PlWe7nEO4=
 github.com/henrylee2cn/goutil v0.0.0-20210127050712-89660552f6f8 h1:yE9ULgp02BhYIrO6sdV/FPe0xQM6fNHkVQW2IAymfM0=
 github.com/henrylee2cn/goutil v0.0.0-20210127050712-89660552f6f8/go.mod h1:Nhe/DM3671a5udlv2AdV2ni/MZzgfv2qrPL5nIi3EGQ=
+github.com/hertz-contrib/logger/accesslog v0.0.0-20240128134225-6b18af47a115 h1:EvTFSVPZhC2O2i3Krhutdje4sSXSc4nmLTkTttKh/s0=
+github.com/hertz-contrib/logger/accesslog v0.0.0-20240128134225-6b18af47a115/go.mod h1:vB3TNAD0IvvDhfY1SWSeCaAVbWleDKEuQ4zOK70hb64=
 github.com/hertz-contrib/sessions v1.0.3 h1:lXBcmpPlMUhVSua54lxrIzJwhKXaI6zZcc+RgQx8xrE=
 github.com/hertz-contrib/sessions v1.0.3/go.mod h1:46/DHSScV2EcK08er3IFvGHbh6a7VLMMiMlI+30QXoA=
 github.com/jtolds/gls v4.20.0+incompatible h1:xdiiI2gbIgH/gLH7ADydsJ1uDOEzR8yvV7C0MuV77Wo=

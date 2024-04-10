@@ -4,6 +4,7 @@ go 1.22.0
 
 require (
 	github.com/cloudwego/hertz v0.7.2
+	github.com/hertz-contrib/logger/accesslog v0.0.0-20240128134225-6b18af47a115
 	github.com/hertz-contrib/sessions v1.0.3
 	gopkg.in/yaml.v2 v2.4.0
 )

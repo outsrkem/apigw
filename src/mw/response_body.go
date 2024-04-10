@@ -1,6 +1,10 @@
 package mw
 
-import "time"
+import (
+	"time"
+
+	"github.com/cloudwego/hertz/pkg/app"
+)
 
 // 定制统一的返回体内容
 func NewResMessage(code int, msg interface{}) map[string]interface{} {
@@ -19,4 +23,8 @@ func NewResMessage(code int, msg interface{}) map[string]interface{} {
 		responseBody["meta_info"] = meta_info
 	}
 	return responseBody
+}
+
+func ResponseBody(ctx *app.RequestContext, status int, msg interface{}) {
+	ctx.JSON(status, NewResMessage(status, msg))
 }
