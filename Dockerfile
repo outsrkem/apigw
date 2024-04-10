@@ -19,7 +19,7 @@ COPY . /opt/apigw
 # -ldflags -s：不生成符号表 -w：不生成DWARF调试信息
 RUN go build -trimpath  -ldflags "-s -w $LD_FLAGS" -o output/apigw src/main/main.go
 RUN output/apigw -version
-RUN cp src/config.yaml output
+RUN cp src/apigw.yaml output
 RUN cp docker-entrypoint.sh output/entrypoint.sh
 
 # Step 2

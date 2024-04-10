@@ -11,6 +11,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/sessions"
+
+	"apigw/src/pkg/proxy"
 )
 
 func tokenRenewal(token string) (string, error) {
@@ -50,12 +52,10 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			}
 
 			// 去除url前缀
-			newUrl := strings.TrimPrefix(string(ctx.Path()), rUrl)
-
-			// 发送http请求
-			reverseproxy := &DoHttpRes{}
-			res, _ := reverseproxy.NewDoHttpRes(headers, method, host+newUrl, payload)
-			answer, err := reverseproxy.DoHttpV1(res)
+			proxy_pass := host + strings.TrimPrefix(string(ctx.Path()), rUrl)
+			proxy, _ := proxy.NewProxy()
+			res, _ := proxy.NewProxyRes(headers, method, proxy_pass, payload)
+			answer, err := proxy.DoHttpV1(res)
 			if err != nil {
 				log.Println(err)
 				ctx.JSON(500, NewResMessage(500, "The back-end service is abnormal."))
