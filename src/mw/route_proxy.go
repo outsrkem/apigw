@@ -79,7 +79,7 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 			}
 			// 设置响应状态码
 			sCode := answer.StatusCode
-			ResponseBody(ctx, sCode, result)
+			ctx.JSON(sCode, result)
 			return
 		}
 		// 用户没有登录
