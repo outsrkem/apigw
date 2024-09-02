@@ -52,8 +52,9 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 				_ = session.Save()
 			}
 
+			// https://www.cloudwego.io/zh/docs/hertz/tutorials/basic-feature/context/request/#uri-%E5%AF%B9%E8%B1%A1
 			// 去除url前缀
-			proxy_pass := host + strings.TrimPrefix(string(ctx.Path()), rUrl)
+			proxy_pass := host + strings.TrimPrefix(string(ctx.URI().RequestURI()), rUrl)
 			proxy, _ := proxy.NewProxy()
 			res, _ := proxy.NewProxyRes(headers, method, proxy_pass, payload)
 			answer, err := proxy.DoHttpV1(res)
