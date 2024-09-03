@@ -1,7 +1,6 @@
 package route
 
 import (
-	"fmt"
 	"log"
 	"net/url"
 
@@ -12,8 +11,11 @@ import (
 	"apigw/src/user"
 )
 
-func RouteLocal(h *server.Hertz) {
-	h.POST("/uias/v1/user/signin", user.UiasSignin)
+func RouteLocal(h *server.Hertz, auth *config.Auth) {
+	host := auth.Backend.Host
+	url := "/internal/v1/uias/user/signin"
+	log.Println("auth : /uias/v1/user/signin -> " + host + url)
+	h.POST("/uias/v1/user/signin", user.UiasSignin(host, url))
 	h.POST("/uias/v1/user/logout", user.UiasLogout)
 }
 
@@ -26,7 +28,7 @@ func RouteProxy(h *server.Hertz, proxy *[]config.Proxy) {
 			tUrl := server.Location.Backend.Url
 			// 请求url
 			rUrl := server.Location.Path
-			fmt.Println(apigw.Name, ": ", server.Location.Path, "->", host+tUrl)
+			log.Println(apigw.Name, ": ", server.Location.Path, "->", host+tUrl)
 			//
 			target, _ := url.Parse(host)
 			log.Println(rUrl, target)
@@ -36,7 +38,6 @@ func RouteProxy(h *server.Hertz, proxy *[]config.Proxy) {
 			h.POST(rUrl+"/*path", mw.ProxyUrl(host, rUrl))
 			h.DELETE(rUrl+"/*path", mw.ProxyUrl(host, rUrl))
 			h.PATCH(rUrl+"/*path", mw.ProxyUrl(host, rUrl))
-
 		}
 	}
 }

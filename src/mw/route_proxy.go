@@ -25,6 +25,9 @@ func tokenRenewal(token string) (string, error) {
 // 统一提权，向上游请求时，在请求头中添加token
 func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.RequestContext) {
 	return func(c context.Context, ctx *app.RequestContext) {
+		// header := ctx.Request.Header.String()
+		// log.Println(header)
+
 		session := sessions.Default(ctx)
 		islogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("islogin")))
 		if islogin {
@@ -34,7 +37,12 @@ func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.Request
 
 			// 头部处理
 			headers := make(map[string]string)
+			// 获取原有请求头并透传
+			ctx.Request.Header.VisitAll(func(key, value []byte) {
+				headers[string(key)] = string(value)
+			})
 			XSubjectToken, ok := session.Get("X-Subject-Token").(string)
+
 			if ok {
 				// 转换成功，可以使用
 				headers["X-Auth-Token"] = XSubjectToken

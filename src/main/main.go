@@ -24,13 +24,14 @@ func main() {
 	app := cfgApigw.Apigw.App
 	proxy := cfgApigw.Apigw.Rroxy
 	redis := cfgApigw.Apigw.Redis
+	auth := cfgApigw.Apigw.Auth
 
 	// 初始化hertz
 	// app.Bind 监听参数：default 127.0.0.1:8080
 	h := server.Default(server.WithHostPorts(app.Bind))
 	mw.NewAccessLog(h)
 	session.InitSession(h, &redis)
-	route.RouteLocal(h)
+	route.RouteLocal(h, &auth)
 	route.RouteProxy(h, &proxy)
 	// 启动服务
 	h.Spin()

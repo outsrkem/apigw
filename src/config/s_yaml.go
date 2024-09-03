@@ -8,6 +8,7 @@ type Config struct {
 type Apigw struct {
 	App   App     `yaml:"app"`
 	Redis Redis   `yaml:"redis"`
+	Auth  Auth    `yaml:"auth"`
 	Rroxy []Proxy `yaml:"proxy"`
 }
 
@@ -19,6 +20,10 @@ type Redis struct {
 	Addr     string `yaml:"addr"`
 	Password string `yaml:"password"`
 	Db       string `yaml:"db"`
+}
+
+type Auth struct {
+	Backend Backend `yaml:"backend"`
 }
 
 type Proxy struct {
