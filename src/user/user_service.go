@@ -17,7 +17,7 @@ import (
 	"apigw/src/pkg/proxy"
 )
 
-// @router /uias/v1/user/signin [POST]
+// @router /api/uias/v1/user/signin [POST]
 
 func UiasSignin(host string, url string) func(c context.Context, ctx *app.RequestContext) {
 	return func(c context.Context, ctx *app.RequestContext) {
@@ -80,7 +80,7 @@ func UiasSignin(host string, url string) func(c context.Context, ctx *app.Reques
 	}
 }
 
-// @router /uias/v1/user/logout [POST]
+// @router /api/uias/v1/user/logout [POST]
 func UiasLogout(c context.Context, ctx *app.RequestContext) {
 	session := sessions.Default(ctx)
 	islogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("islogin")))

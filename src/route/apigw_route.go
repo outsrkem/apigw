@@ -15,8 +15,9 @@ func RouteLocal(h *server.Hertz, auth *config.Auth) {
 	host := auth.Backend.Host
 	url := "/internal/v1/uias/user/signin"
 	log.Println("auth : /uias/v1/user/signin -> " + host + url)
-	h.POST("/uias/v1/user/signin", user.UiasSignin(host, url))
-	h.POST("/uias/v1/user/logout", user.UiasLogout)
+
+	h.POST("/api/uias/v1/user/signin", user.UiasSignin(host, url))
+	h.POST("/api/uias/v1/user/logout", user.UiasLogout)
 }
 
 func RouteProxy(h *server.Hertz, proxy *[]config.Proxy) {
