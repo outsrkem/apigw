@@ -76,7 +76,7 @@ func UiasSignin(host string, url string) func(c context.Context, ctx *app.Reques
 			session.Set("islogin", true)
 			_ = session.Save()
 		}
-		mw.ResponseBody(ctx, sCode, result)
+		ctx.JSON(sCode, result)
 	}
 }
 
