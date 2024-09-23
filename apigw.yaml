@@ -16,10 +16,10 @@ apigw:
             backend:
               host: 'http://localhost:18180'
               url: /
-    - name: newxxx
+    - name: snms
       server:
         - location:
-            path: /outs
+            path: /api/snms
             backend:
-              host: 'http://localhost:18180'
-              url: /internal/v1/xxx/user/signin
+              host: 'http://localhost:18182'
+              url: /

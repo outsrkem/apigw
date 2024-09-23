@@ -1,0 +1,50 @@
+name: Release Version
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+env:
+  APP_NAME: apigw
+  APP_VERSION: 0.0.1-alpha
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Log in to the swr registry : swr.cn-north-1.myhuaweicloud.com"
+        uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+        with:
+          registry: swr.cn-north-1.myhuaweicloud.com
+          username: cn-north-1@${{ secrets.HW_SWR_DOCKER_USERNAME }}
+          password: ${{ secrets.HW_SWR_DOCKER_PASSWORD }}
+
+      - name: "Checkout repository"
+        uses: actions/checkout@v4.1.1
+
+      - name: "Docker Metadata"
+        id: meta
+        uses: docker/metadata-action@v5.5.1
+        with:
+          images: |
+            swr.cn-north-1.myhuaweicloud.com/onge/${{ env.APP_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ env.APP_VERSION }}
+
+
+      - name: "Build and push Docker image"
+        uses: docker/build-push-action@v5.3.0
+        with:
+          context: .
+          push: true
+          file: ./Dockerfile
+          build-args: |
+            SNMS_REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+            SNMS_VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+            org.opencontainers.image.version=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
