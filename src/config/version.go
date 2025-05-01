@@ -6,12 +6,9 @@ import (
 )
 
 var (
-	//Version 项目版本信息
-	Version = ""
-	//GoVersion Go版本信息
-	GoVersion = ""
-	//GitCommit git提交commmit id
-	GitCommit = ""
+	Version   = "" // Version 项目版本信息
+	GoVersion = "" // GoVersion Go版本信息
+	GitCommit = "" // GitCommit git提交commmit id
 )
 
 type versions struct {

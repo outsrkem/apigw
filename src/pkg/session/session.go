@@ -1,6 +1,7 @@
 package session
 
 import (
+	"apigw/src/cfgtypts"
 	"log"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -8,8 +9,6 @@ import (
 	"github.com/hertz-contrib/sessions"
 	"github.com/hertz-contrib/sessions/cookie"
 	"github.com/hertz-contrib/sessions/redis"
-
-	"apigw/src/config"
 )
 
 // redis配置
@@ -39,8 +38,8 @@ func NewRedisCfg(addr, passwd, db string, sma int) *redisCfg {
 	}
 }
 
-// 使用redis保存session
-func CreateStoreRedis(r *config.Redis, sessionMaxAge int) (app.HandlerFunc, error) {
+// CreateStoreRedis 使用redis保存session
+func CreateStoreRedis(r *cfgtypts.Redis, sessionMaxAge int) (app.HandlerFunc, error) {
 	rcfg := NewRedisCfg(r.Addr, r.Password, r.Db, sessionMaxAge)
 	log.Println("session redis:", rcfg.network+"://"+r.Addr+"/"+r.Db)
 	// 连接redis
@@ -55,7 +54,7 @@ func CreateStoreRedis(r *config.Redis, sessionMaxAge int) (app.HandlerFunc, erro
 	return sessions.New("session", store), nil
 }
 
-// 使用Cookie保存session
+// CreateStoreCookie 使用Cookie保存session
 func CreateStoreCookie(sessionMaxAge int) (app.HandlerFunc, error) {
 	log.Println("redis is not configured. Use cookies to save drawing sessions.")
 	store := cookie.NewStore([]byte("secret"))
@@ -66,8 +65,8 @@ func CreateStoreCookie(sessionMaxAge int) (app.HandlerFunc, error) {
 	return sessions.New("session", store), nil
 }
 
-// 初始化Session
-func InitSession(h *server.Hertz, r *config.Redis) {
+// InitSession 初始化Session
+func InitSession(h *server.Hertz, r *cfgtypts.Redis) {
 	// session设置超时时间(秒), 30min
 	var sessionMaxAge int = 60 * 30
 	var session app.HandlerFunc

@@ -30,6 +30,10 @@ func (c *connection) onHup(p Poll) error {
 	}
 	c.triggerRead(Exception(ErrEOF, "peer close"))
 	c.triggerWrite(Exception(ErrConnClosed, "peer close"))
+
+	// call Disconnect callback first
+	c.onDisconnect()
+
 	// It depends on closing by user if OnConnect and OnRequest is nil, otherwise it needs to be released actively.
 	// It can be confirmed that the OnRequest goroutine has been exited before closeCallback executing,
 	// and it is safe to close the buffer at this time.
@@ -71,7 +75,6 @@ func (c *connection) closeBuffer() {
 	// so we need to check the buffer length, and if it's an "unclean" close operation, let's give up to reuse the buffer
 	if c.inputBuffer.Len() == 0 || onConnect != nil || onRequest != nil {
 		c.inputBuffer.Close()
-		barrierPool.Put(c.inputBarrier)
 	}
 	if c.outputBuffer.Len() == 0 || onConnect != nil || onRequest != nil {
 		c.outputBuffer.Close()

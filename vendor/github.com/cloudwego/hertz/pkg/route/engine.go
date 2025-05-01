@@ -47,6 +47,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -75,6 +76,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/http1"
 	"github.com/cloudwego/hertz/pkg/protocol/http1/factory"
 	"github.com/cloudwego/hertz/pkg/protocol/suite"
+	"github.com/cloudwego/hertz/pkg/route/param"
 )
 
 const unknownTransporterName = "unknown"
@@ -257,7 +259,18 @@ func (engine *Engine) IsStreamRequestBody() bool {
 }
 
 func (engine *Engine) IsRunning() bool {
-	return atomic.LoadUint32(&engine.status) == statusRunning
+	if atomic.LoadUint32(&engine.status) != statusRunning {
+		return false
+	}
+	// double check listener
+	type ListenerIface interface {
+		Listener() net.Listener
+	}
+	v, ok := engine.transport.(ListenerIface)
+	if ok {
+		return v.Listener() != nil
+	}
+	return true // default behavior if no ListenerIface
 }
 
 func (engine *Engine) HijackConnHandle(c network.Conn, h app.HijackHandler) {
@@ -348,11 +361,6 @@ func (engine *Engine) Run() (err error) {
 		return err
 	}
 
-	if err = engine.MarkAsRunning(); err != nil {
-		return err
-	}
-	defer atomic.StoreUint32(&engine.status, statusClosed)
-
 	// trigger hooks if any
 	ctx := context.Background()
 	for i := range engine.OnRun {
@@ -360,6 +368,11 @@ func (engine *Engine) Run() (err error) {
 			return err
 		}
 	}
+
+	if err = engine.MarkAsRunning(); err != nil {
+		return err
+	}
+	defer atomic.StoreUint32(&engine.status, statusClosed)
 
 	return engine.listenAndServe()
 }
@@ -726,6 +739,7 @@ func (engine *Engine) ServeHTTP(c context.Context, ctx *app.RequestContext) {
 
 	// align with https://datatracker.ietf.org/doc/html/rfc2616#section-5.2
 	if len(ctx.Request.Host()) == 0 && ctx.Request.Header.IsHTTP11() && bytesconv.B2s(ctx.Request.Method()) != consts.MethodConnect {
+		ctx.SetHandlers(engine.Handlers)
 		serveError(c, ctx, consts.StatusBadRequest, requiredHostBody)
 		return
 	}
@@ -743,8 +757,15 @@ func (engine *Engine) ServeHTTP(c context.Context, ctx *app.RequestContext) {
 
 	// Follow RFC7230#section-5.3
 	if rPath == "" || rPath[0] != '/' {
+		ctx.SetHandlers(engine.Handlers)
 		serveError(c, ctx, consts.StatusBadRequest, default400Body)
 		return
+	}
+
+	// if Params is re-assigned in HandlerFunc and the capacity is not enough we need to realloc
+	maxParams := int(engine.maxParams)
+	if cap(ctx.Params) < maxParams {
+		ctx.Params = make(param.Params, 0, maxParams)
 	}
 
 	// Find root of the tree for the given HTTP method

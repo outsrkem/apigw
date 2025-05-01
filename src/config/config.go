@@ -1,8 +1,9 @@
 package config
 
 import (
+	"apigw/src/cfgtypts"
+	"apigw/src/slog"
 	"flag"
-	"log"
 	"os"
 
 	"gopkg.in/yaml.v2"
@@ -11,19 +12,22 @@ import (
 type FlagArgs struct {
 	CfgPath      string
 	PrintVersion bool
+	Plain        string // 接收命令行字符串，用于加密
 }
 
 func NewFlagArgs() *FlagArgs {
 	fa := &FlagArgs{}
-	flag.StringVar(&fa.CfgPath, "f", "config.yaml", "Configuration file path")
+	flag.StringVar(&fa.CfgPath, "c", "apigw.yaml", "Configuration file path")
 	flag.BoolVar(&fa.PrintVersion, "version", false, "print program version")
+	flag.StringVar(&fa.Plain, "encrypt", "", "Encrypted string.")
 	flag.Parse()
 	return fa
 }
 
 // InitConfig 初始化配置
-func InitConfig() *Config {
-	var _cfg Config
+func InitConfig() *cfgtypts.Config {
+	klog := slog.FromContext(nil)
+	var _cfg cfgtypts.Config
 	fa := NewFlagArgs()
 
 	if fa.PrintVersion {
@@ -31,29 +35,23 @@ func InitConfig() *Config {
 		versions.Print(versions)
 	}
 
-	log.Println("Read configuration file:", fa.CfgPath)
+	if fa.Plain != "" {
+		// 加密命令行字符串
+		encryption(fa.Plain)
+	}
 
+	klog.Infof("Read configuration file: %s", fa.CfgPath)
 	configData, err := os.ReadFile(fa.CfgPath)
 	if err != nil {
-		log.Println("读取配置文件失败:", err)
+		klog.Errorf("Read configuration file error: %v", err)
 		os.Exit(1)
 	}
 
 	err = yaml.Unmarshal(configData, &_cfg)
 	if err != nil {
-		log.Println("解析配置文件失败:", err)
+		klog.Errorf("Unmarshal configuration file error: %v", err)
 		os.Exit(1)
 	}
-	// proxy := _cfg.Apigw.Rroxy
-	// for _, apigw := range proxy {
-	//     fmt.Println("")
-	//     fmt.Println(apigw.Name)
-	//     for _, server := range apigw.Server {
-	//         fmt.Println(server.Location.Path)
-	//         fmt.Println(server.Location.Backend.Host)
-	//         fmt.Println(server.Location.Backend.Url)
-	//     }
-	// }
-
+	decryptionRedisPwd(&_cfg)
 	return &_cfg
 }

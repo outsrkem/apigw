@@ -24,8 +24,14 @@ import (
 	"time"
 )
 
+type connState = int32
+
 const (
 	defaultZeroCopyTimeoutSec = 60
+
+	connStateNone         = 0
+	connStateConnected    = 1
+	connStateDisconnected = 2
 )
 
 // connection is the implement of Connection
@@ -43,11 +49,11 @@ type connection struct {
 	writeTrigger    chan error
 	inputBuffer     *LinkBuffer
 	outputBuffer    *LinkBuffer
-	inputBarrier    *barrier
 	outputBarrier   *barrier
 	supportZeroCopy bool
-	maxSize         int // The maximum size of data between two Release().
-	bookSize        int // The size of data that can be read at once.
+	maxSize         int       // The maximum size of data between two Release().
+	bookSize        int       // The size of data that can be read at once.
+	state           connState // Connection state should be changed sequentially.
 }
 
 var (
@@ -220,10 +226,15 @@ func (c *connection) MallocLen() (length int) {
 // If empty, it will call syscall.Write to send data directly,
 // otherwise the buffer will be sent asynchronously by the epoll trigger.
 func (c *connection) Flush() error {
-	if !c.IsActive() || !c.lock(flushing) {
+	if !c.IsActive() {
 		return Exception(ErrConnClosed, "when flush")
 	}
+
+	if !c.lock(flushing) {
+		return Exception(ErrConcurrentAccess, "when flush")
+	}
 	defer c.unlock(flushing)
+
 	c.outputBuffer.Flush()
 	return c.flush()
 }
@@ -282,8 +293,12 @@ func (c *connection) Read(p []byte) (n int, err error) {
 
 // Write will Flush soon.
 func (c *connection) Write(p []byte) (n int, err error) {
-	if !c.IsActive() || !c.lock(flushing) {
+	if !c.IsActive() {
 		return 0, Exception(ErrConnClosed, "when write")
+	}
+
+	if !c.lock(flushing) {
+		return 0, Exception(ErrConcurrentAccess, "when write")
 	}
 	defer c.unlock(flushing)
 
@@ -321,9 +336,10 @@ func (c *connection) init(conn Conn, opts *options) (err error) {
 	// init buffer, barrier, finalizer
 	c.readTrigger = make(chan error, 1)
 	c.writeTrigger = make(chan error, 1)
-	c.bookSize, c.maxSize = pagesize, pagesize
-	c.inputBuffer, c.outputBuffer = NewLinkBuffer(pagesize), NewLinkBuffer()
-	c.inputBarrier, c.outputBarrier = barrierPool.Get().(*barrier), barrierPool.Get().(*barrier)
+	c.bookSize, c.maxSize = defaultLinkBufferSize, defaultLinkBufferSize
+	c.inputBuffer, c.outputBuffer = NewLinkBuffer(defaultLinkBufferSize), NewLinkBuffer()
+	c.outputBarrier = barrierPool.Get().(*barrier)
+	c.state = connStateNone
 
 	c.initNetFD(conn) // conn must be *netFD{}
 	c.initFDOperator()
@@ -448,7 +464,7 @@ func (c *connection) waitReadWithTimeout(n int) (err error) {
 				return Exception(ErrReadTimeout, c.remoteAddr.String())
 			case err = <-c.readTrigger:
 				if err != nil {
-					return err
+					goto RET
 				}
 				continue
 			}
@@ -525,4 +541,16 @@ func (c *connection) waitFlush() (err error) {
 		c.operator.Control(PollRW2R)
 		return Exception(ErrWriteTimeout, c.remoteAddr.String())
 	}
+}
+
+func (c *connection) getState() connState {
+	return atomic.LoadInt32(&c.state)
+}
+
+func (c *connection) setState(newState connState) {
+	atomic.StoreInt32(&c.state, newState)
+}
+
+func (c *connection) changeState(from, to connState) bool {
+	return atomic.CompareAndSwapInt32(&c.state, from, to)
 }
