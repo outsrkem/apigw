@@ -2,12 +2,22 @@ apigw:
   app:
     bind: "0.0.0.0:8080"
   redis:
-    addr: "127.0.0.1:6379"
+    addr: "10.10.10.16:6379"
     password: ""
     db: "0"
   auth:
     backend:
       host: "http://localhost:18180"
+  log:
+    level: "INFO"
+    output:
+      #stdout: "-"
+      file:
+        name: "/opt/service/apigw/logs/service.log"
+        maxsize: 10          # 每个日志文件的最大大小（MB）
+        maxbackups: 300      # 保留旧文件的最大个数
+        maxage: 60           # 保留旧文件的最大天数
+        compress: true       # 是否压缩/归档旧文件
   proxy:
     - name: uias
       server:

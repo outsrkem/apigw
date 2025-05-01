@@ -2,7 +2,7 @@
 set -e
 
 if [ -z "$1" ];then
-  set -- apigw -f /usr/local/bin/apigw.yaml
+  set -- apigw -c /usr/local/bin/apigw.yaml
 fi
 
 exec "$@"

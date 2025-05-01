@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"log"
 	"net/http"
 	"strings"
 )
@@ -29,14 +28,14 @@ func (r *httpProxy) NewProxyRes(headers map[string]string, method, url string, b
 	return res, nil
 }
 
-// 向后端接口发送http请求
+// DoHttpV1 向后端接口发送http请求
 func (r *httpProxy) DoHttpV1(res *httpProxy) (*http.Response, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest(res.Method, res.Url, res.Body)
 	if err != nil {
-		log.Println("Get error:", nil)
 		return nil, err
 	}
+
 	// 设置请求头
 	for key, header := range res.Headers {
 		req.Header.Set(key, header)
@@ -44,10 +43,8 @@ func (r *httpProxy) DoHttpV1(res *httpProxy) (*http.Response, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
-	// 这个defer会导致不能返回数据
-	// defer resp.Body.Close()
+
 	return resp, nil
 }

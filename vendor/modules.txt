@@ -1,44 +1,69 @@
-# github.com/bytedance/go-tagexpr/v2 v2.9.2
-## explicit; go 1.14
-github.com/bytedance/go-tagexpr/v2
-github.com/bytedance/go-tagexpr/v2/validator
-# github.com/bytedance/gopkg v0.0.0-20220413063733-65bf48ffb3a7
-## explicit; go 1.16
+# github.com/BurntSushi/toml v1.5.0
+## explicit; go 1.18
+# github.com/bytedance/gopkg v0.1.0
+## explicit; go 1.15
 github.com/bytedance/gopkg/internal/runtimex
+github.com/bytedance/gopkg/lang/dirtmake
 github.com/bytedance/gopkg/lang/fastrand
 github.com/bytedance/gopkg/lang/mcache
 github.com/bytedance/gopkg/util/gopool
 github.com/bytedance/gopkg/util/logger
-# github.com/bytedance/sonic v1.8.1
-## explicit; go 1.15
+# github.com/bytedance/sonic v1.13.2
+## explicit; go 1.17
 github.com/bytedance/sonic
 github.com/bytedance/sonic/ast
 github.com/bytedance/sonic/decoder
 github.com/bytedance/sonic/encoder
 github.com/bytedance/sonic/internal/caching
+github.com/bytedance/sonic/internal/compat
 github.com/bytedance/sonic/internal/cpu
+github.com/bytedance/sonic/internal/decoder/api
+github.com/bytedance/sonic/internal/decoder/consts
+github.com/bytedance/sonic/internal/decoder/errors
+github.com/bytedance/sonic/internal/decoder/jitdec
+github.com/bytedance/sonic/internal/decoder/optdec
+github.com/bytedance/sonic/internal/encoder
+github.com/bytedance/sonic/internal/encoder/alg
+github.com/bytedance/sonic/internal/encoder/ir
+github.com/bytedance/sonic/internal/encoder/vars
+github.com/bytedance/sonic/internal/encoder/vm
+github.com/bytedance/sonic/internal/encoder/x86
+github.com/bytedance/sonic/internal/envs
 github.com/bytedance/sonic/internal/jit
-github.com/bytedance/sonic/internal/loader
 github.com/bytedance/sonic/internal/native
-github.com/bytedance/sonic/internal/native/avx
 github.com/bytedance/sonic/internal/native/avx2
+github.com/bytedance/sonic/internal/native/neon
 github.com/bytedance/sonic/internal/native/sse
 github.com/bytedance/sonic/internal/native/types
+github.com/bytedance/sonic/internal/optcaching
 github.com/bytedance/sonic/internal/resolver
 github.com/bytedance/sonic/internal/rt
-github.com/bytedance/sonic/loader
+github.com/bytedance/sonic/internal/utils
 github.com/bytedance/sonic/option
 github.com/bytedance/sonic/unquote
 github.com/bytedance/sonic/utf8
-# github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311
-## explicit; go 1.15
-github.com/chenzhuoyu/base64x
-# github.com/cloudwego/hertz v0.7.2
+# github.com/bytedance/sonic/loader v0.2.4
 ## explicit; go 1.16
+github.com/bytedance/sonic/loader
+github.com/bytedance/sonic/loader/internal/abi
+github.com/bytedance/sonic/loader/internal/iasm/expr
+github.com/bytedance/sonic/loader/internal/iasm/x86_64
+github.com/bytedance/sonic/loader/internal/rt
+# github.com/cloudwego/base64x v0.1.5
+## explicit; go 1.16
+github.com/cloudwego/base64x
+github.com/cloudwego/base64x/internal/native
+github.com/cloudwego/base64x/internal/native/avx2
+github.com/cloudwego/base64x/internal/native/sse
+github.com/cloudwego/base64x/internal/rt
+# github.com/cloudwego/hertz v0.9.7
+## explicit; go 1.19
 github.com/cloudwego/hertz/internal/bytesconv
 github.com/cloudwego/hertz/internal/bytestr
 github.com/cloudwego/hertz/internal/nocopy
 github.com/cloudwego/hertz/internal/stats
+github.com/cloudwego/hertz/internal/tagexpr
+github.com/cloudwego/hertz/internal/tagexpr/validator
 github.com/cloudwego/hertz/pkg/app
 github.com/cloudwego/hertz/pkg/app/client/retry
 github.com/cloudwego/hertz/pkg/app/middlewares/server/recovery
@@ -77,7 +102,7 @@ github.com/cloudwego/hertz/pkg/protocol/suite
 github.com/cloudwego/hertz/pkg/route
 github.com/cloudwego/hertz/pkg/route/consts
 github.com/cloudwego/hertz/pkg/route/param
-# github.com/cloudwego/netpoll v0.5.0
+# github.com/cloudwego/netpoll v0.6.4
 ## explicit; go 1.15
 github.com/cloudwego/netpoll
 # github.com/fsnotify/fsnotify v1.5.4
@@ -89,6 +114,9 @@ github.com/golang/protobuf/proto
 # github.com/gomodule/redigo v1.8.9
 ## explicit; go 1.16
 github.com/gomodule/redigo/redis
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
 # github.com/gorilla/context v1.1.2
 ## explicit; go 1.20
 github.com/gorilla/context
@@ -98,16 +126,6 @@ github.com/gorilla/securecookie
 # github.com/gorilla/sessions v1.2.2
 ## explicit; go 1.20
 github.com/gorilla/sessions
-# github.com/henrylee2cn/ameda v1.4.10
-## explicit; go 1.13
-github.com/henrylee2cn/ameda
-# github.com/henrylee2cn/goutil v0.0.0-20210127050712-89660552f6f8
-## explicit; go 1.12
-github.com/henrylee2cn/goutil
-github.com/henrylee2cn/goutil/errors
-# github.com/hertz-contrib/logger/accesslog v0.0.0-20240128134225-6b18af47a115
-## explicit; go 1.16
-github.com/hertz-contrib/logger/accesslog
 # github.com/hertz-contrib/sessions v1.0.3
 ## explicit; go 1.16
 github.com/hertz-contrib/sessions
@@ -116,9 +134,15 @@ github.com/hertz-contrib/sessions/redis
 # github.com/klauspost/cpuid/v2 v2.0.9
 ## explicit; go 1.13
 github.com/klauspost/cpuid/v2
+# github.com/natefinch/lumberjack v2.0.0+incompatible
+## explicit
+github.com/natefinch/lumberjack
 # github.com/nyaruka/phonenumbers v1.0.55
 ## explicit; go 1.13
 github.com/nyaruka/phonenumbers
+# github.com/sirupsen/logrus v1.9.3
+## explicit; go 1.13
+github.com/sirupsen/logrus
 # github.com/tidwall/gjson v1.14.4
 ## explicit; go 1.12
 github.com/tidwall/gjson
@@ -150,9 +174,10 @@ github.com/twitchyliquid64/golang-asm/unsafeheader
 # golang.org/x/arch v0.0.0-20210923205945-b76863e36670
 ## explicit; go 1.17
 golang.org/x/arch/x86/x86asm
-# golang.org/x/sys v0.13.0
-## explicit; go 1.17
+# golang.org/x/sys v0.24.0
+## explicit; go 1.18
 golang.org/x/sys/unix
+golang.org/x/sys/windows
 # google.golang.org/protobuf v1.27.1
 ## explicit; go 1.9
 google.golang.org/protobuf/encoding/prototext
@@ -182,6 +207,8 @@ google.golang.org/protobuf/reflect/protoregistry
 google.golang.org/protobuf/runtime/protoiface
 google.golang.org/protobuf/runtime/protoimpl
 google.golang.org/protobuf/types/descriptorpb
+# gopkg.in/natefinch/lumberjack.v2 v2.2.1
+## explicit; go 1.13
 # gopkg.in/yaml.v2 v2.4.0
 ## explicit; go 1.15
 gopkg.in/yaml.v2

@@ -67,10 +67,11 @@ import (
 	"io"
 	"net/url"
 	"reflect"
+	"strings"
 	"sync"
 
-	exprValidator "github.com/bytedance/go-tagexpr/v2/validator"
 	"github.com/cloudwego/hertz/internal/bytesconv"
+	exprValidator "github.com/cloudwego/hertz/internal/tagexpr/validator"
 	inDecoder "github.com/cloudwego/hertz/pkg/app/server/binding/internal/decoder"
 	hJson "github.com/cloudwego/hertz/pkg/common/json"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -175,9 +176,11 @@ func (b *defaultBinder) bindTag(req *protocol.Request, v interface{}, params par
 		return b.bindNonStruct(req, v)
 	}
 
-	err := b.preBindBody(req, v)
-	if err != nil {
-		return fmt.Errorf("bind body failed, err=%v", err)
+	if len(tag) == 0 {
+		err := b.preBindBody(req, v)
+		if err != nil {
+			return fmt.Errorf("bind body failed, err=%v", err)
+		}
 	}
 	cache := b.tagCache(tag)
 	cached, ok := cache.Load(typeID)
@@ -323,7 +326,7 @@ func (b *defaultBinder) preBindBody(req *protocol.Request, v interface{}) error 
 		return nil
 	}
 	ct := bytesconv.B2s(req.Header.ContentType())
-	switch utils.FilterContentType(ct) {
+	switch strings.ToLower(utils.FilterContentType(ct)) {
 	case consts.MIMEApplicationJSON:
 		return hJson.Unmarshal(req.Body(), v)
 	case consts.MIMEPROTOBUF:
@@ -339,7 +342,7 @@ func (b *defaultBinder) preBindBody(req *protocol.Request, v interface{}) error 
 
 func (b *defaultBinder) bindNonStruct(req *protocol.Request, v interface{}) (err error) {
 	ct := bytesconv.B2s(req.Header.ContentType())
-	switch utils.FilterContentType(ct) {
+	switch strings.ToLower(utils.FilterContentType(ct)) {
 	case consts.MIMEApplicationJSON:
 		err = hJson.Unmarshal(req.Body(), v)
 	case consts.MIMEPROTOBUF:
