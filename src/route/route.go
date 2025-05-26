@@ -5,12 +5,8 @@ import (
 	"apigw/src/service/proxy"
 	"apigw/src/service/userauth"
 	"apigw/src/slog"
-	"context"
-	"net/url"
-
-	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
-	"github.com/cloudwego/hertz/pkg/common/utils"
+	"strings"
 )
 
 func Middleware(h *server.Hertz) {
@@ -18,26 +14,33 @@ func Middleware(h *server.Hertz) {
 	h.Use(RequestRecorder())
 }
 
-func HelloWorld() func(c context.Context, ctx *app.RequestContext) {
-	return func(c context.Context, ctx *app.RequestContext) {
-		klog := slog.FromContext(ctx)
-		klog.Info("hello world.")
-		ctx.JSON(200, utils.H{"message": "hello world"})
-	}
-}
-
+// LocalRouter 认证相关路由
 func LocalRouter(h *server.Hertz, auth *cfgtypts.Auth) {
 	klog := slog.FromContext(nil)
 	host := auth.Backend.Host
 	path := "/internal/v1/uias/user/signin"
-	klog.Infof("auth : /uias/v1/user/signin -> %s%s", host, path)
+	klog.Infof("Auth backend: %s", host)
 
 	h.HEAD("", HelloWorld())
 	h.GET("/", HelloWorld())
 	h.POST("/api/uias/v1/user/signin", userauth.UiasSignin(host, path))
 	h.POST("/api/uias/v1/user/logout", userauth.UiasLogout())
+
+	h.POST("/api/uias/v1/uias/retpwd/gcode", proxy.NoAuthProxy(host, "/v1/uias/retpwd/gcode"))
+	h.POST("/api/uias/v1/uias/retpwd/spwd", proxy.NoAuthProxy(host, "/v1/uias/retpwd/spwd"))
 }
 
+// 设置后端目标
+func backend(backendHost, backendUrl string) string {
+	host := strings.TrimSuffix(backendHost, "/")
+	url := strings.TrimPrefix(backendUrl, "/")
+	if url == "" {
+		return host
+	}
+	return host + "/" + url
+}
+
+// ProxyRouter 外部注册接口的路由
 func ProxyRouter(h *server.Hertz, cfgProxy *[]cfgtypts.Proxy) {
 	klog := slog.FromContext(nil)
 	for _, apigw := range *cfgProxy {
@@ -45,20 +48,27 @@ func ProxyRouter(h *server.Hertz, cfgProxy *[]cfgtypts.Proxy) {
 			host := v.Location.Backend.Host // 后端服务域名
 			tUrl := v.Location.Backend.Url  // 目标url
 			rUrl := v.Location.Path         // 请求url
-			klog.Infof("%s: %s -> %s", apigw.Name, v.Location.Path, host+tUrl)
+			auth := v.Location.Auth
+			target := backend(host, tUrl)
+			klog.Infof("%s: %s -> %s", apigw.Name, rUrl, target)
+			method := NewProxyMethod(h, target, rUrl, auth)
 
-			target, err := url.Parse(host)
-			if err != nil {
-				klog.Errorf("parse url fail: %v", err)
-				panic(err)
+			switch v.Location.Method {
+			case "Any":
+				method.Any()
+			case "Head":
+				method.Head()
+			case "Get":
+				method.Get()
+			case "Post":
+				method.Post()
+			case "Delete":
+				method.Delete()
+			case "Patch":
+				method.Patch()
+			default:
+				method.Head()
 			}
-
-			klog.Infof("%s %s", rUrl, target)
-			h.HEAD(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.GET(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.POST(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.DELETE(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.PATCH(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
 		}
 	}
 }

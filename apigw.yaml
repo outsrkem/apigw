@@ -1,6 +1,6 @@
 apigw:
   app:
-    bind: "0.0.0.0:8080"
+    bind: "0.0.0.0:18080"
   redis:
     addr: "10.10.10.16:6379"
     password: ""
@@ -11,25 +11,37 @@ apigw:
   log:
     level: "INFO"
     output:
-      #stdout: "-"
       file:
         name: "/opt/service/apigw/logs/service.log"
-        maxsize: 10          # 每个日志文件的最大大小（MB）
-        maxbackups: 300      # 保留旧文件的最大个数
-        maxage: 60           # 保留旧文件的最大天数
-        compress: true       # 是否压缩/归档旧文件
+        maxsize: 10
+        maxbackups: 300
+        maxage: 60
+        compress: true
   proxy:
     - name: uias
       server:
         - location:
+            auth: uias
+            method: Any
             path: /api/uias
             backend:
               host: 'http://localhost:18180'
               url: /
+    - name: ats
+      server:
+        - location:
+            auth: uias
+            method: Any
+            path: /api/ats
+            backend:
+              host: 'http://localhost:18185'
+              url: /
     - name: snms
       server:
         - location:
+            auth: uias
+            method: Any
             path: /api/snms
             backend:
-              host: 'http://localhost:18182'
+              host: 'http://localhost:18190'
               url: /
