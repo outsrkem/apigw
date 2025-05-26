@@ -23,5 +23,7 @@ ARG APIGW_REVISION
 ARG APIGW_VERSION
 
 COPY --from=0 /opt/apigw/output/ /usr/local/bin
+RUN mkdir "/etc/apigw" && mv /usr/local/bin/apigw.yaml /etc/apigw/apigw.yaml
+
 ENV APIGW_REVISION=$APIGW_REVISION APIGW_VERSION=$APIGW_VERSION
 ENTRYPOINT ["entrypoint.sh"]

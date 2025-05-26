@@ -24,10 +24,15 @@ func main() {
 	redis := cfg.Apigw.Redis
 	auth := cfg.Apigw.Auth
 
-	svc := server.Default(server.WithHostPorts(app.Bind), server.WithExitWaitTime(0*time.Second))
+	svc := server.Default(
+		server.WithHostPorts(app.Bind),
+		server.WithMaxRequestBodySize(200<<20), // 最大的请求体大小为 200Mb
+		server.WithExitWaitTime(0*time.Second))
+
 	route.Middleware(svc)
 	session.InitSession(svc, &redis)
 	route.LocalRouter(svc, &auth)
 	route.ProxyRouter(svc, &proxy)
+
 	svc.Spin()
 }
