@@ -54,6 +54,8 @@ type Server struct {
 }
 
 type Location struct {
+	Auth    string  `yaml:"auth"`   // 是否认证 uias,off
+	Method  string  `yaml:"method"` // Any,Get,Post,Delete,Patch,Head
 	Path    string  `yaml:"path"`
 	Backend Backend `yaml:"backend"`
 }

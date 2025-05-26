@@ -16,11 +16,16 @@ func RequestId() app.HandlerFunc {
 		xRequestId := string(c.GetHeader("X-Request-Id"))
 		if xRequestId == "" {
 			xRequestId = strings.ReplaceAll(uuid.New().String(), "-", "")
-			c.Response.Header.Set("X-Request-Id", xRequestId)
+			c.Request.Header.Set("X-Request-Id", xRequestId)
 			klog.Warnf("request id is empty, Set a new request id: %s", xRequestId)
 		}
 		c.Set("xRequestId", xRequestId)
 		c.Next(ctx)
+		// 如果响应头中没有 X-Request-Id，则添加它
+		if c.Response.Header.Get("X-Request-Id") == "" {
+			c.Response.Header.Set("X-Request-Id", xRequestId)
+			klog.Debugf("Set X-Request-Id in response: %s", xRequestId)
+		}
 	}
 }
 

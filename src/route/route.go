@@ -36,8 +36,46 @@ func LocalRouter(h *server.Hertz, auth *cfgtypts.Auth) {
 	h.GET("/", HelloWorld())
 	h.POST("/api/uias/v1/user/signin", userauth.UiasSignin(host, path))
 	h.POST("/api/uias/v1/user/logout", userauth.UiasLogout())
+
+	h.POST("/api/uias/v1/uias/retpwd/gcode", proxy.NoAuthProxy(host, "/v1/uias/retpwd/gcode"))
+	h.POST("/api/uias/v1/uias/retpwd/spwd", proxy.NoAuthProxy(host, "/v1/uias/retpwd/spwd"))
 }
 
+func HeadMethod(h *server.Hertz, host, rUrl, auth string) {
+	switch auth {
+	case "uias":
+		h.HEAD(rUrl+"/*path", proxy.UiasAuthProxy(host, rUrl))
+	case "off":
+		h.HEAD(rUrl+"/*path", proxy.NoAuthProxy(host, rUrl))
+	default:
+		h.HEAD(rUrl+"/*path", proxy.UiasAuthProxy(host, rUrl))
+	}
+}
+
+func GetMethod(h *server.Hertz, host, rUrl, auth string) {
+	switch auth {
+	case "uias":
+		h.GET(rUrl+"/*path", proxy.UiasAuthProxy(host, rUrl))
+	case "off":
+		h.GET(rUrl+"/*path", proxy.NoAuthProxy(host, rUrl))
+	default:
+		h.GET(rUrl+"/*path", proxy.UiasAuthProxy(host, rUrl))
+	}
+}
+
+func PostMethod(h *server.Hertz, host, rUrl string) {
+	h.POST(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
+}
+
+func DeleteMethod(h *server.Hertz, host, rUrl string) {
+	h.DELETE(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
+}
+
+func PatchMethod(h *server.Hertz, host, rUrl string) {
+	h.PATCH(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
+}
+
+// ProxyRouter 代理路由
 func ProxyRouter(h *server.Hertz, cfgProxy *[]cfgtypts.Proxy) {
 	klog := slog.FromContext(nil)
 	for _, apigw := range *cfgProxy {
@@ -54,11 +92,26 @@ func ProxyRouter(h *server.Hertz, cfgProxy *[]cfgtypts.Proxy) {
 			}
 
 			klog.Infof("%s %s", rUrl, target)
-			h.HEAD(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.GET(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.POST(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.DELETE(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
-			h.PATCH(rUrl+"/*path", proxy.ProxyUrl(host, rUrl))
+			switch v.Location.Method {
+			case "Any":
+				HeadMethod(h, host, rUrl, v.Location.Auth)
+				GetMethod(h, host, rUrl, v.Location.Auth)
+				PostMethod(h, host, rUrl)
+				DeleteMethod(h, host, rUrl)
+				PatchMethod(h, host, rUrl)
+			case "Head":
+				HeadMethod(h, host, rUrl, v.Location.Auth)
+			case "Get":
+				GetMethod(h, host, rUrl, v.Location.Auth)
+			case "Post":
+				PostMethod(h, host, rUrl)
+			case "Delete":
+				DeleteMethod(h, host, rUrl)
+			case "Patch":
+				PatchMethod(h, host, rUrl)
+			default:
+				HeadMethod(h, host, rUrl, v.Location.Auth)
+			}
 		}
 	}
 }

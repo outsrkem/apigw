@@ -22,13 +22,26 @@ apigw:
     - name: uias
       server:
         - location:
+            auth: uias
+            method: Any
             path: /api/uias
             backend:
               host: 'http://localhost:18180'
               url: /
+    - name: ats
+      server:
+        - location:
+            auth: uias
+            method: Any
+            path: /api/ats
+            backend:
+              host: 'http://localhost:28185'
+              url: /
     - name: snms
       server:
         - location:
+            auth: uias
+            method: Any
             path: /api/snms
             backend:
               host: 'http://localhost:18182'
