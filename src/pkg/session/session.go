@@ -21,8 +21,7 @@ type redisCfg struct {
 	sKey          string
 }
 
-// 初始化redis配置
-// redis DB default "0"
+// NewRedisCfg 初始化redis配置,redis DB default "0"
 func NewRedisCfg(addr, passwd, db string, sma int) *redisCfg {
 	if db == "" {
 		log.Println(`Use the default db one ("0")`)

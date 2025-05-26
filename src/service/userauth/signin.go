@@ -2,84 +2,63 @@ package userauth
 
 import (
 	"apigw/src/pkg/answer"
-	"apigw/src/pkg/proxy"
+	"apigw/src/pkg/core"
 	"apigw/src/slog"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/sessions"
 )
 
 // UiasSignin 登录
-func UiasSignin(host string, url string) func(c context.Context, ctx *app.RequestContext) {
-	return func(c context.Context, ctx *app.RequestContext) {
-		klog := slog.FromContext(ctx)
-		session := sessions.Default(ctx)
+func UiasSignin(host string, url string) func(ctx context.Context, c *app.RequestContext) {
+	return func(ctx context.Context, c *app.RequestContext) {
+		klog := slog.FromContext(c)
+		session := sessions.Default(c)
 		isLogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("isLogin")))
 		if isLogin {
-			ctx.JSON(200, answer.NewResMessage(answer.EcodeOkay, "User logged in.", nil))
+			c.JSON(200, answer.NewResMessage(answer.EcodeOkay, "User logged in.", nil))
 			return
 		}
 
-		headers := make(map[string]string)
-		// 获取原有请求头并透传
-		ctx.Request.Header.VisitAll(func(key, value []byte) {
-			headers[string(key)] = string(value)
-		})
-
-		method := string(ctx.Method())
-		body1, _ := ctx.Body()
-		payload := strings.NewReader(string(body1))
+		headers := core.SetReqHeaders(ctx, c)
+		method := string(c.Method())
+		body, _ := c.Body()
 
 		// 发送http请求
 		proxyPass := host + url
-		_proxy, _ := proxy.NewProxy()
-		res, _ := _proxy.NewProxyRes(headers, method, proxyPass, payload)
 
-		klog.Debugf("headers: %v", headers)
-		upstreamData, err := _proxy.DoHttpV1(res)
+		response, err := core.SendHttpRequest(ctx, method, proxyPass, body, headers, 10*time.Second)
 		if err != nil {
-			klog.Errorf("Sending request error: %v.", err)
-			ctx.JSON(500, answer.NewResMessage(answer.EcodeSendingRequest, "Sending request error.", nil))
+			klog.Error(err)
+			c.JSON(500, answer.NewResMessage(answer.EcodeBackEndServiceError, "The back-end service is abnormal.", nil))
 			return
 		}
-		defer func() {
-			if upstreamData != nil {
-				if err := upstreamData.Body.Close(); err != nil {
-					klog.Errorf("Close request failed: %v", err)
-				}
-			}
-		}()
 
 		// 设置响应头
-		for key, value := range upstreamData.Header {
+		for key, value := range response.Header {
 			klog.Debugf("Header[%q] = %q", key, value)
-			ctx.Response.Header.Set(key, strings.Join(value, ""))
+			c.Response.Header.Set(key, strings.Join(value, ""))
 		}
 
-		// 处理响应体
-		body, err := io.ReadAll(upstreamData.Body)
-		if err != nil {
-			klog.Errorf("read body err: %v", err)
-			ctx.JSON(http.StatusInternalServerError,
-				answer.NewResMessage(answer.EcodeReadUpstreamDataError, "Internal Server Error", nil))
-			return
-		}
+		// 删除不必要的头部
+		c.Response.Header.Del("X-Subject-Token")
+		c.Response.Header.Del("X-Token-ExpireAt")
 
-		if upstreamData.StatusCode == 200 {
-			// 登录成功后保存token
+		if response.StatusCode == 200 { // 登录成功后保存token
+			// TODO 设置每个用户的单独会话时长
 			klog.Info("log in success.")
-			XSubjectToken := upstreamData.Header.Get("X-Subject-Token")
+			XSubjectToken := response.Header.Get("X-Subject-Token")
 			session.Set("X-Subject-Token", XSubjectToken)
 			session.Set("isLogin", true)
 			if err = session.Save(); err != nil {
 				klog.Errorf("session save err: %v", err)
-				ctx.JSON(http.StatusInternalServerError,
+				c.JSON(http.StatusInternalServerError,
 					answer.NewResMessage(answer.EcodeSaveSessionError, "Internal Server Error", nil))
 				return
 			}
@@ -87,6 +66,6 @@ func UiasSignin(host string, url string) func(c context.Context, ctx *app.Reques
 		}
 
 		// 无论成功或失败都透传上游的响应
-		ctx.Data(upstreamData.StatusCode, string(ctx.Response.Header.ContentType()), body)
+		c.Data(response.StatusCode, response.Header.Get("Content-Type"), response.Body)
 	}
 }

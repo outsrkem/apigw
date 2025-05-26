@@ -2,44 +2,37 @@ package proxy
 
 import (
 	"apigw/src/pkg/answer"
-	"apigw/src/pkg/proxy"
+	"apigw/src/pkg/core"
 	"apigw/src/slog"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/sessions"
 )
 
-func tokenRenewal(token string) (string, error) {
-	return token, nil
+// SetUrl 去除url前缀，并设置请求到后端的完整url
+func SetUrl(c *app.RequestContext, target, rUrl string) string {
+	return target + strings.TrimPrefix(string(c.URI().RequestURI()), rUrl)
 }
 
-func StartProxy(ctx *app.RequestContext, session sessions.Session, host, rUrl string) {
-	klog := slog.FromContext(ctx)
-	body1, err := ctx.Body()
+// StartProxy 反向代理
+func StartProxy(ctx context.Context, c *app.RequestContext, session sessions.Session, target, path string) {
+	klog := slog.FromContext(c)
+	headers := core.SetReqHeaders(ctx, c) // 头部处理, 获取原有请求头并透传
+	method := string(c.Method())
+	body, err := c.Body()
 	if err != nil {
 		klog.Errorf("body err: %v", err)
 	}
+	klog.Debugf("req body: %v", string(body))
 
-	klog.Debugf("req body: %v", string(body1))
-	payload := strings.NewReader(string(body1))
-	klog.Debugf("req payload: %v", payload)
-
-	method := string(ctx.Method())
-
-	// 头部处理, 获取原有请求头并透传
-	headers := make(map[string]string)
-	ctx.Request.Header.VisitAll(func(key, value []byte) {
-		headers[string(key)] = string(value)
-	})
-
-	XSubjectToken, ok := session.Get("X-Subject-Token").(string)
-	if ok {
+	// TODO 移除频繁session的保存
+	if XSubjectToken, ok := session.Get("X-Subject-Token").(string); ok {
 		headers["X-Auth-Token"] = XSubjectToken       // 转换成功，可以使用
 		session.Set("X-Subject-Token", XSubjectToken) // 保存一次session，防止过期
 		if err := session.Save(); err != nil {
@@ -48,61 +41,68 @@ func StartProxy(ctx *app.RequestContext, session sessions.Session, host, rUrl st
 	}
 
 	// TODO token 续签
-	proxyPass := host + strings.TrimPrefix(string(ctx.URI().RequestURI()), rUrl) // 去除url前缀
-	klog.Debugf("proxyPass %v", proxyPass)
-
-	proxy, _ := proxy.NewProxy()
-	res, _ := proxy.NewProxyRes(headers, method, proxyPass, payload)
-	upstreamData, err := proxy.DoHttpV1(res)
+	url := SetUrl(c, target, path)
+	klog.Infof("to backend %s %s", method, url)
+	response, err := core.SendHttpRequest(ctx, method, url, body, headers, 10*time.Second)
 	if err != nil {
 		klog.Error(err)
-		ctx.JSON(500, answer.NewResMessage(answer.EcodeBackEndServiceError, "The back-end service is abnormal.", nil))
+		c.JSON(500, answer.NewResMessage(answer.EcodeBackEndServiceError, "The back-end service is abnormal.", nil))
 		return
 	}
-	defer func() {
-		if upstreamData != nil {
-			klog.Info("start close body.")
-			klog.Debugf("upstreamData: %v", upstreamData)
-			if err := upstreamData.Body.Close(); err != nil {
-				klog.Errorf("Close request failed: %v", err)
-			}
-		}
-	}()
-
 	// 设置响应头
-	for key, value := range upstreamData.Header {
-		klog.Debugf("Header[%q] = %q", key, value)
-		ctx.Response.Header.Set(key, strings.Join(value, ""))
-	}
+	core.SetResHeaders(ctx, c, response.Header)
 
-	// 处理响应体
-	body, err := io.ReadAll(upstreamData.Body)
-	if err != nil {
-		klog.Errorf("read body err: %v", err)
-		ctx.JSON(500, map[string]interface{}{})
-	}
-
-	klog.Debugf("body: %v", string(body))
+	klog.Debugf("body: %v", string(response.Body))
 	klog.Info("return the response data.")
-	ctx.Data(upstreamData.StatusCode, string(ctx.Response.Header.ContentType()), body)
+	c.Data(response.StatusCode, response.Header.Get("Content-Type"), response.Body)
 }
 
-// ProxyUrl 反向代理的逻辑处理, 适用于浏览器用户登录后的接口调用
-// 统一提权，向上游请求时，在请求头中添加token
-func ProxyUrl(host string, rUrl string) func(c context.Context, ctx *app.RequestContext) {
-	return func(c context.Context, ctx *app.RequestContext) {
-		klog := slog.FromContext(ctx)
+// NoAuthProxy 非认证代理
+func NoAuthProxy(target string, path string) func(ctx context.Context, c *app.RequestContext) {
+	return func(ctx context.Context, c *app.RequestContext) {
+		klog := slog.FromContext(c)
+		klog.Debug("start proxy.")
 
-		session := sessions.Default(ctx)
+		headers := core.SetReqHeaders(ctx, c)
+		klog.Debugf("headers %+v", headers)
+		method := string(c.Method())
+		url := SetUrl(c, target, path)
+		body, _ := c.Body()
+		klog.Infof("to backend %s %s", method, url)
+
+		// 发送http请求
+		response, err := core.SendHttpRequest(ctx, method, url, body, headers, 10*time.Second)
+		if err != nil {
+			klog.Errorf("Send http err: %v", err)
+			c.JSON(http.StatusInternalServerError,
+				answer.NewResMessage(answer.EcodeReadUpstreamDataError, "Internal Server Error", nil))
+			return
+		}
+
+		// 设置响应头
+		core.SetResHeaders(ctx, c, response.Header)
+
+		klog.Debugf("body: %v", string(response.Body))
+		klog.Info("return the response data.")
+		c.Data(response.StatusCode, response.Header.Get("Content-Type"), response.Body)
+	}
+}
+
+// UiasAuthProxy Uias 认证代理
+func UiasAuthProxy(target string, path string) func(ctx context.Context, c *app.RequestContext) {
+	return func(ctx context.Context, c *app.RequestContext) {
+		klog := slog.FromContext(c)
+
+		session := sessions.Default(c)
 		isLogin, _ := strconv.ParseBool(fmt.Sprint(session.Get("isLogin")))
 
 		if !isLogin { // 用户没有登录
 			klog.Warn("user is not login. Please log in and try again")
-			ctx.JSON(http.StatusUnauthorized, answer.ResBody(answer.EcodeNotLogIn, nil, ""))
+			c.JSON(http.StatusUnauthorized, answer.ResBody(answer.EcodeNotLogIn, nil, ""))
 			return
 		}
 
 		klog.Debug("The user has logged in.")
-		StartProxy(ctx, session, host, rUrl)
+		StartProxy(ctx, c, session, target, path)
 	}
 }
