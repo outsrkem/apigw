@@ -21,17 +21,27 @@ apigw:
     - name: uias
       server:
         - location:
-            auth: uias
-            method: Any
-            path: /api/uias
+            auth: "uias"
+            method: "Any"
+            mode: "Prefix"
+            path: "/api/uias"
             backend:
               host: 'http://localhost:18180'
-              url: /
+              url: "/"
+        - location:
+            auth: "off"
+            method: "Get"
+            mode: "Exact"
+            path: "/api/uias/v1/basic/footer"
+            backend:
+              host: 'http://uias.svc.local:18180'
+              url: /v1/basic/footer
     - name: ats
       server:
         - location:
             auth: uias
             method: Any
+            mode: "Prefix"
             path: /api/ats
             backend:
               host: 'http://localhost:18185'
@@ -41,6 +51,7 @@ apigw:
         - location:
             auth: uias
             method: Any
+            mode: "Prefix"
             path: /api/snms
             backend:
               host: 'http://localhost:18190'
