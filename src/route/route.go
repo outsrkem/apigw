@@ -51,7 +51,7 @@ func ProxyRouter(h *server.Hertz, cfgProxy *[]cfgtypts.Proxy) {
 			auth := v.Location.Auth
 			target := backend(host, tUrl)
 			klog.Infof("%s: %s -> %s", apigw.Name, rUrl, target)
-			method := NewProxyMethod(h, target, rUrl, auth)
+			method := NewProxyMethod(h, target, rUrl, auth, v.Location)
 
 			switch v.Location.Method {
 			case "Any":
