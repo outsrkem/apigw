@@ -5,8 +5,9 @@ import (
 	"apigw/src/service/proxy"
 	"apigw/src/service/userauth"
 	"apigw/src/slog"
-	"github.com/cloudwego/hertz/pkg/app/server"
 	"strings"
+
+	"github.com/cloudwego/hertz/pkg/app/server"
 )
 
 func Middleware(h *server.Hertz) {
@@ -26,8 +27,8 @@ func LocalRouter(h *server.Hertz, auth *cfgtypts.Auth) {
 	h.POST("/api/uias/v1/user/signin", userauth.UiasSignin(host, path))
 	h.POST("/api/uias/v1/user/logout", userauth.UiasLogout())
 
-	h.POST("/api/uias/v1/uias/retpwd/gcode", proxy.NoAuthProxy(host, "/v1/uias/retpwd/gcode"))
-	h.POST("/api/uias/v1/uias/retpwd/spwd", proxy.NoAuthProxy(host, "/v1/uias/retpwd/spwd"))
+	h.POST("/api/uias/v1/uias/retpwd/gcode", proxy.NoAuthProxy(host, "/api/uias"))
+	h.POST("/api/uias/v1/uias/retpwd/spwd", proxy.NoAuthProxy(host, "/api/uias"))
 }
 
 // 设置后端目标
