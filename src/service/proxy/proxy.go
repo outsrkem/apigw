@@ -98,7 +98,7 @@ func UiasAuthProxy(target string, path string) func(ctx context.Context, c *app.
 
 		if !isLogin { // 用户没有登录
 			klog.Warn("user is not login. Please log in and try again")
-			c.JSON(http.StatusUnauthorized, answer.ResBody(answer.EcodeNotLogIn, nil, ""))
+			c.JSON(http.StatusUnauthorized, answer.ResBody(answer.EcodeNotLogIn, nil, nil))
 			return
 		}
 
