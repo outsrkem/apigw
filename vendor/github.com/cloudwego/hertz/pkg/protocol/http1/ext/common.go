@@ -176,6 +176,12 @@ func appendBodyFixedSize(r network.Reader, dst []byte, n int) ([]byte, error) {
 	}
 	dst = dst[:dstLen]
 
+	// Prefer io.Reader over Peek to avoid holding a ref to the underlying buffer.
+	if rd, ok := r.(io.Reader); ok {
+		rn, err := io.ReadFull(rd, dst[offset:])
+		return dst[:offset+rn], err
+	}
+
 	// Peek can get all data, otherwise it will through error
 	buf, err := r.Peek(n)
 	if err != nil {
@@ -296,27 +302,31 @@ func round2(n int) int {
 	return 1 << x
 }
 
-func WriteChunk(w network.Writer, b []byte, withFlush bool) (err error) {
+func WriteChunk(w network.Writer, b []byte, withFlush bool) error {
 	n := len(b)
-	if err = bytesconv.WriteHexInt(w, n); err != nil {
-		return err
-	}
 
-	w.WriteBinary(bytestr.StrCRLF) //nolint:errcheck
-	if _, err = w.WriteBinary(b); err != nil {
-		return err
-	}
-
-	// If it is the end of chunk, write CRLF after writing trailer
+	sz := bytesconv.EncodedIntHexLen(uint64(n)) + 2 // len + CRLF
 	if n > 0 {
-		w.WriteBinary(bytestr.StrCRLF) //nolint:errcheck
+		sz += n + 2 // data + CRLF
+	}
+	wb, err := w.Malloc(sz)
+	if err != nil {
+		return err
 	}
 
+	wb = bytesconv.AppendIntHex(wb[:0], uint64(n))
+	wb = append(wb, '\r', '\n')
+	if n > 0 {
+		wb = append(wb, b...)
+		wb = append(wb, '\r', '\n')
+	}
+	if len(wb) != sz {
+		panic("[BUG] len mismatch")
+	}
 	if !withFlush {
 		return nil
 	}
-	err = w.Flush()
-	return
+	return w.Flush()
 }
 
 func isOnlyCRLF(b []byte) bool {

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -72,7 +71,7 @@ func writev(fd int, bs [][]byte, ivs []syscall.Iovec) (n int, err error) {
 	r, _, e := syscall.RawSyscall(syscall.SYS_WRITEV, uintptr(fd), uintptr(unsafe.Pointer(&ivs[0])), uintptr(iovLen))
 	resetIovecs(bs, ivs[:iovLen])
 	if e != 0 {
-		return int(r), syscall.Errno(e)
+		return int(r), e
 	}
 	return int(r), nil
 }
@@ -88,7 +87,7 @@ func readv(fd int, bs [][]byte, ivs []syscall.Iovec) (n int, err error) {
 	r, _, e := syscall.RawSyscall(syscall.SYS_READV, uintptr(fd), uintptr(unsafe.Pointer(&ivs[0])), uintptr(iovLen))
 	resetIovecs(bs, ivs[:iovLen])
 	if e != 0 {
-		return int(r), syscall.Errno(e)
+		return int(r), e
 	}
 	return int(r), nil
 }

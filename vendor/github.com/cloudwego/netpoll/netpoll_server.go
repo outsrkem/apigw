@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -66,7 +65,7 @@ func (s *server) Close(ctx context.Context) error {
 	for {
 		activeConn := 0
 		s.connections.Range(func(key, value interface{}) bool {
-			var conn, ok = value.(gracefulExit)
+			conn, ok := value.(gracefulExit)
 			if !ok || conn.isIdle() {
 				value.(Connection).Close()
 			} else {
@@ -162,12 +161,12 @@ func (s *server) OnHup(p Poll) error {
 
 func (s *server) onAccept(conn Conn) {
 	// store & register connection
-	var nconn = new(connection)
+	nconn := new(connection)
 	nconn.init(conn, s.opts)
 	if !nconn.IsActive() {
 		return
 	}
-	var fd = conn.Fd()
+	fd := conn.Fd()
 	nconn.AddCloseCallback(func(connection Connection) error {
 		s.connections.Delete(fd)
 		return nil

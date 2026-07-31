@@ -30,6 +30,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server/render"
 	errs "github.com/cloudwego/hertz/pkg/common/errors"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/cloudwego/hertz/pkg/common/tracer/stats"
 	"github.com/cloudwego/hertz/pkg/common/tracer/traceinfo"
 	"github.com/cloudwego/hertz/pkg/common/utils"
@@ -72,6 +73,7 @@ type Option struct {
 	NoDefaultServerHeader         bool
 	DisableHeaderNamesNormalizing bool
 	MaxRequestBodySize            int
+	MaxHeaderBytes                int
 	IdleTimeout                   time.Duration
 	ReadTimeout                   time.Duration
 	ServerName                    []byte
@@ -91,7 +93,7 @@ type Server struct {
 
 func (s Server) getRequestContext() *app.RequestContext {
 	if disabaleRequestContextPool {
-		return &app.RequestContext{}
+		return s.Core.GetCtxPool().New().(*app.RequestContext)
 	}
 	return s.Core.GetCtxPool().Get().(*app.RequestContext)
 }
@@ -167,6 +169,7 @@ func (s Server) Serve(c context.Context, conn network.Conn) (err error) {
 
 	ctx.HTMLRender = s.HTMLRender
 	ctx.SetConn(conn)
+
 	ctx.Request.SetIsTLS(s.TLS != nil)
 	ctx.SetEnableTrace(s.EnableTrace)
 
@@ -220,7 +223,7 @@ func (s Server) Serve(c context.Context, conn network.Conn) (err error) {
 		}
 
 		// Read Headers
-		if err = req.ReadHeader(&ctx.Request.Header, zr); err == nil {
+		if err = req.ReadHeaderWithLimit(&ctx.Request.Header, zr, s.MaxHeaderBytes); err == nil {
 			if s.EnableTrace {
 				// read header finished
 				if last := eventsToTrigger.pop(); last != nil {
@@ -294,6 +297,7 @@ func (s Server) Serve(c context.Context, conn network.Conn) (err error) {
 				} else {
 					err = req.ContinueReadBody(&ctx.Request, zr, s.MaxRequestBodySize, !s.DisablePreParseMultipartForm)
 				}
+
 				if err != nil {
 					writeErrorResponse(zw, ctx, serverName, err)
 					return
@@ -313,6 +317,19 @@ func (s Server) Serve(c context.Context, conn network.Conn) (err error) {
 				internalStats.Record(ti, stats.ServerHandleFinish, err)
 			})
 		}
+
+		if ctx.Request.IsURIParsed() {
+			// ctx.Request.URI() must not be called before ServeHTTP
+			// The only case is concurrency issue when parsing a new request,
+			// and user is reading the old request in background.
+			hlog.SystemLogger().Warnf("%s\n%s\n%s\n%s",
+				"Race detected.",
+				"Please be aware that the protocol.Request passed to handler is only valid before the handler returns.",
+				"DO NOT attempt to keep and access protocol.Request after the handler returns.",
+				"Try build with -race to check the race issue.")
+			return errors.New("race detected")
+		}
+
 		// Handle the request
 		//
 		// NOTE: All middlewares and business handler will be executed in this. And at this point, the request has been parsed
@@ -407,6 +424,7 @@ func (s Server) Serve(c context.Context, conn network.Conn) (err error) {
 		}
 		// Back to network layer to trigger.
 		// For now, only netpoll network mode has this feature.
+		// FIXME: check
 		if s.IdleTimeout == 0 {
 			return
 		}
@@ -469,6 +487,8 @@ func defaultErrorHandler(ctx *app.RequestContext, err error) {
 		ctx.AbortWithMsg("Request timeout", consts.StatusRequestTimeout)
 	} else if errors.Is(err, errs.ErrBodyTooLarge) {
 		ctx.AbortWithMsg("Request Entity Too Large", consts.StatusRequestEntityTooLarge)
+	} else if errors.Is(err, errs.ErrHeaderTooLarge) {
+		ctx.AbortWithMsg("Request Header Fields Too Large", consts.StatusRequestHeaderFieldsTooLarge)
 	} else {
 		ctx.AbortWithMsg("Error when parsing request", consts.StatusBadRequest)
 	}

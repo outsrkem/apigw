@@ -6,17 +6,19 @@ import (
 )
 
 var (
-	Version   = "" // Version 项目版本信息
-	GoVersion = "" // GoVersion Go版本信息
-	GitCommit = "" // GitCommit git提交commmit id
+	Version   = "" // Application version information
+	GoVersion = "" // Golang compiler version
+	GitCommit = "" // Git commit hash identifier
 )
 
+// versions stores compilation and version metadata
 type versions struct {
 	AppVersion string
 	GoVersion  string
 	GitCommit  string
 }
 
+// newVersions constructs versions instance with given version parameters
 func newVersions(appv, gov, commit string) (*versions, error) {
 	v := &versions{
 		AppVersion: appv,
@@ -26,6 +28,7 @@ func newVersions(appv, gov, commit string) (*versions, error) {
 	return v, nil
 }
 
+// Print outputs version details to console and exits program normally
 func (v *versions) Print(versions *versions) {
 	fmt.Println("Version: ", versions.AppVersion)
 	fmt.Println("Go Version: ", versions.GoVersion)

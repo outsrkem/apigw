@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/bytedance/gopkg/lang/dirtmake"
 )
@@ -31,17 +32,21 @@ const BinaryInplaceThreshold = block4k
 // LinkBufferCap that can be modified marks the minimum value of each node of LinkBuffer.
 var LinkBufferCap = block4k
 
-var _ Reader = &LinkBuffer{}
-var _ Writer = &LinkBuffer{}
+var untilErr = errors.New("link buffer read slice cannot find delim")
+
+var (
+	_ Reader = &LinkBuffer{}
+	_ Writer = &LinkBuffer{}
+)
 
 // NewLinkBuffer size defines the initial capacity, but there is no readable data.
 func NewLinkBuffer(size ...int) *LinkBuffer {
-	var buf = &LinkBuffer{}
+	buf := &LinkBuffer{}
 	var l int
 	if len(size) > 0 {
 		l = size[0]
 	}
-	var node = newLinkBufferNode(l)
+	node := newLinkBufferNode(l)
 	buf.head, buf.read, buf.flush, buf.write = node, node, node, node
 	return buf
 }
@@ -75,6 +80,70 @@ func (b *UnsafeLinkBuffer) IsEmpty() (ok bool) {
 	return b.Len() == 0
 }
 
+// ------------------------------------------ implement copy reader ------------------------------------------
+
+// readCopy copies up to len(p) bytes from the buffer into p without exposing
+// the underlying buffer to user code (flagReadExposed is not set).
+// After copying, it releases consumed nodes where readExposed is false.
+// Nodes with readExposed are left for the next Release call.
+func (b *UnsafeLinkBuffer) readCopy(p []byte) (n int) {
+	l := len(p)
+	if l == 0 || b.Len() == 0 {
+		return 0
+	}
+	if has := b.Len(); has < l {
+		l = has
+	}
+	b.recalLen(-l)
+
+	// copy from nodes
+	for ack := l; ack > 0; {
+		if b.read.Len() == 0 {
+			b.read = b.read.next
+			continue
+		}
+		rd := b.read.Len()
+		if rd >= ack {
+			n += copy(p[n:], b.read.buf[b.read.off:b.read.off+ack])
+			b.read.off += ack
+			break
+		}
+		n += copy(p[n:], b.read.buf[b.read.off:])
+		ack -= rd
+		b.read = b.read.next
+	}
+
+	// advance read past empty nodes
+	for b.read != b.flush && b.read.Len() == 0 {
+		b.read = b.read.next
+	}
+	// release consumed nodes that are not readExposed.
+	// exposed nodes stay in the chain so Release() can free them later.
+	//
+	// Example: [exposed/consumed] → [not-exposed/consumed] → [read/partial]
+	// After:   head → [exposed] → [read/partial]
+	//          the middle node is detached and released.
+	var prev *linkBufferNode
+	newHead := b.read
+	for cur := b.head; cur != b.read; {
+		next := cur.next
+		if cur.readExposed() {
+			if prev == nil {
+				newHead = cur
+			}
+			prev = cur
+		} else {
+			cur.Release()
+			if prev != nil {
+				prev.next = next
+			}
+		}
+		cur = next
+	}
+	b.head = newHead
+	return n
+}
+
 // ------------------------------------------ implement zero-copy reader ------------------------------------------
 
 // Next implements Reader.
@@ -90,6 +159,7 @@ func (b *UnsafeLinkBuffer) Next(n int) (p []byte, err error) {
 
 	// single node
 	if b.isSingleNode(n) {
+		b.read.setFlag(flagReadExposed)
 		return b.read.Next(n), nil
 	}
 	// multiple nodes
@@ -127,6 +197,7 @@ func (b *UnsafeLinkBuffer) Peek(n int) (p []byte, err error) {
 	}
 	// single node
 	if b.isSingleNode(n) {
+		b.read.setFlag(flagReadExposed)
 		return b.read.Peek(n), nil
 	}
 
@@ -230,7 +301,8 @@ func (b *UnsafeLinkBuffer) ReadString(n int) (s string, err error) {
 	if b.Len() < n {
 		return s, fmt.Errorf("link buffer read string[%d] not enough", n)
 	}
-	return unsafeSliceToString(b.readBinary(n)), nil
+	p := b.readBinary(n)
+	return unsafe.String(unsafe.SliceData(p), len(p)), nil
 }
 
 // ReadBinary implements Reader.
@@ -251,21 +323,6 @@ func (b *UnsafeLinkBuffer) readBinary(n int) (p []byte) {
 
 	// single node
 	if b.isSingleNode(n) {
-		// TODO: enable nocopy read mode when ensure no legacy depend on copy-read
-		// we cannot nocopy read a readonly mode buffer, since readonly buffer's memory is not control by itself
-		if !b.read.getMode(readonlyMask) {
-			// if readBinary use no-copy mode, it will cause more memory used but get higher memory access efficiently
-			// for example, if user's codec need to decode 10 strings and each have 100 bytes, here could help the codec
-			// no need to malloc 10 times and the string slice could have the compact memory allocation.
-			if b.read.getMode(nocopyReadMask) {
-				return b.read.Next(n)
-			}
-			if featureAlwaysNoCopyRead && n >= minReuseBytes {
-				b.read.setMode(nocopyReadMask, true)
-				return b.read.Next(n)
-			}
-		}
-		// if the underlying buffer too large, we shouldn't use no-copy mode
 		p = dirtmake.Bytes(n, n)
 		copy(p, b.read.Next(n))
 		return p
@@ -307,7 +364,7 @@ func (b *UnsafeLinkBuffer) ReadByte() (p byte, err error) {
 func (b *UnsafeLinkBuffer) Until(delim byte) (line []byte, err error) {
 	n := b.indexByte(delim, 0)
 	if n < 0 {
-		return nil, fmt.Errorf("link buffer read slice cannot find: '%b'", delim)
+		return nil, untilErr
 	}
 	return b.Next(n + 1)
 }
@@ -338,12 +395,14 @@ func (b *UnsafeLinkBuffer) Slice(n int) (r Reader, err error) {
 
 	// single node
 	if b.isSingleNode(n) {
+		b.read.setFlag(flagReadExposed)
 		node := b.read.Refer(n)
 		p.head, p.read, p.flush = node, node, node
 		return p, nil
 	}
 	// multiple nodes
-	var l = b.read.Len()
+	l := b.read.Len()
+	b.read.setFlag(flagReadExposed)
 	node := b.read.Refer(l)
 	b.read = b.read.next
 
@@ -351,10 +410,12 @@ func (b *UnsafeLinkBuffer) Slice(n int) (r Reader, err error) {
 	for ack := n - l; ack > 0; ack = ack - l {
 		l = b.read.Len()
 		if l >= ack {
+			b.read.setFlag(flagReadExposed)
 			p.flush.next = b.read.Refer(ack)
 			p.flush = p.flush.next
 			break
 		} else if l > 0 {
+			b.read.setFlag(flagReadExposed)
 			p.flush.next = b.read.Refer(l)
 			p.flush = p.flush.next
 		}
@@ -399,7 +460,7 @@ func (b *UnsafeLinkBuffer) MallocAck(n int) (err error) {
 	}
 	// discard the rest
 	for node := b.write.next; node != nil; node = node.next {
-		node.off, node.malloc, node.refer, node.buf = 0, 0, 1, node.buf[:0]
+		node.malloc, node.refer, node.buf = node.off, 1, node.buf[:node.off]
 	}
 	return nil
 }
@@ -428,7 +489,7 @@ func (b *UnsafeLinkBuffer) Flush() (err error) {
 
 // Append implements Writer.
 func (b *UnsafeLinkBuffer) Append(w Writer) (err error) {
-	var buf, ok = w.(*LinkBuffer)
+	buf, ok := w.(*LinkBuffer)
 	if !ok {
 		return errors.New("unsupported writer which is not LinkBuffer")
 	}
@@ -481,7 +542,7 @@ func (b *UnsafeLinkBuffer) WriteString(s string) (n int, err error) {
 	if len(s) == 0 {
 		return
 	}
-	buf := unsafeStringToSlice(s)
+	buf := unsafe.Slice(unsafe.StringData(s), len(s))
 	return b.WriteBinary(buf)
 }
 
@@ -538,9 +599,9 @@ func (b *UnsafeLinkBuffer) WriteDirect(extra []byte, remainLen int) error {
 		newNode.off = malloc
 		newNode.buf = origin.buf[:malloc]
 		newNode.malloc = origin.malloc
-		newNode.setMode(readonlyMask, false)
+		newNode.unsetFlag(flagUnmanaged)
 		origin.malloc = malloc
-		origin.setMode(readonlyMask, true)
+		origin.setFlag(flagUnmanaged)
 
 		// link nodes
 		dataNode.next = newNode
@@ -619,11 +680,13 @@ func (b *UnsafeLinkBuffer) GetBytes(p [][]byte) (vs [][]byte) {
 	var i int
 	for i = 0; node != flush && i < len(p); node = node.next {
 		if node.Len() > 0 {
+			node.setFlag(flagReadExposed)
 			p[i] = node.buf[node.off:]
 			i++
 		}
 	}
 	if i < len(p) {
+		flush.setFlag(flagReadExposed)
 		p[i] = flush.buf[flush.off:]
 		i++
 	}
@@ -683,7 +746,6 @@ func (b *UnsafeLinkBuffer) resetTail(maxSize int) {
 	b.write.next = newLinkBufferNode(0)
 	b.write = b.write.next
 	b.flush = b.write
-	return
 }
 
 // indexByte returns the index of the first instance of c in buffer, or -1 if c is not present in buffer.
@@ -736,7 +798,7 @@ func (b *UnsafeLinkBuffer) growth(n int) {
 		return
 	}
 	// the memory of readonly node if not malloc by us so should skip them
-	for b.write.getMode(readonlyMask) || cap(b.write.buf)-b.write.malloc < n {
+	for b.write.getFlag(flagUnmanaged) || cap(b.write.buf)-b.write.malloc < n {
 		if b.write.next == nil {
 			b.write.next = newLinkBufferNode(n)
 			b.write = b.write.next
@@ -778,11 +840,11 @@ func (b *LinkBuffer) memorySize() (bytes int) {
 // newLinkBufferNode create or reuse linkBufferNode.
 // Nodes with size <= 0 are marked as readonly, which means the node.buf is not allocated by this mcache.
 func newLinkBufferNode(size int) *linkBufferNode {
-	var node = linkedPool.Get().(*linkBufferNode)
+	node := linkedPool.Get().(*linkBufferNode)
 	// reset node offset
 	node.off, node.malloc, node.refer, node.mode = 0, 0, 1, defaultLinkBufferMode
 	if size <= 0 {
-		node.setMode(readonlyMask, true)
+		node.setFlag(flagUnmanaged)
 		return node
 	}
 	if size < LinkBufferCap {
@@ -795,7 +857,7 @@ func newLinkBufferNode(size int) *linkBufferNode {
 var linkedPool = sync.Pool{
 	New: func() interface{} {
 		return &linkBufferNode{
-			refer: 1, // 自带 1 引用
+			refer: 1, // comes with 1 reference
 		}
 	},
 }
@@ -824,7 +886,6 @@ func (node *linkBufferNode) Reset() {
 	}
 	node.off, node.malloc = 0, 0
 	node.buf = node.buf[:0]
-	return
 }
 
 func (node *linkBufferNode) Next(n int) (p []byte) {
@@ -877,19 +938,26 @@ func (node *linkBufferNode) Release() (err error) {
 	return nil
 }
 
-func (node *linkBufferNode) getMode(mask uint8) bool {
-	return (node.mode & mask) > 0
+func (node *linkBufferNode) getFlag(flag uint8) bool {
+	return node.mode&flag > 0
 }
 
-func (node *linkBufferNode) setMode(mask uint8, enable bool) {
-	if enable {
-		node.mode = node.mode | mask
-	} else {
-		node.mode = node.mode &^ mask
-	}
+func (node *linkBufferNode) setFlag(flag uint8) {
+	node.mode |= flag
 }
 
-// only non-readonly and copied-read node should be reusable
+func (node *linkBufferNode) unsetFlag(flag uint8) {
+	node.mode &^= flag
+}
+
+// reusable reports whether the node's buffer memory is owned by the LinkBuffer and can be recycled.
+// Called during Release to decide if node.buf should be returned to mcache via free.
 func (node *linkBufferNode) reusable() bool {
-	return node.mode&(readonlyMask|nocopyReadMask) == 0
+	return node.mode&flagUnmanaged == 0
+}
+
+// readExposed reports whether the node's buffer has been returned directly to user code
+// via a zero-copy Reader method and may still be referenced externally.
+func (node *linkBufferNode) readExposed() bool {
+	return node.mode&flagReadExposed > 0
 }
