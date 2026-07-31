@@ -16,8 +16,6 @@ package netpoll
 
 import (
 	"io"
-	"reflect"
-	"unsafe"
 
 	"github.com/bytedance/gopkg/lang/dirtmake"
 	"github.com/bytedance/gopkg/lang/mcache"
@@ -243,8 +241,8 @@ func NewIOReadWriter(rw ReadWriter) io.ReadWriter {
 		return rwer
 	}
 	return &ioReadWriter{
-		ioReader: newIOReader(rw),
-		ioWriter: newIOWriter(rw),
+		Reader: NewIOReader(rw),
+		Writer: NewIOWriter(rw),
 	}
 }
 
@@ -258,32 +256,16 @@ const (
 	pagesize  = block8k
 	mallocMax = block8k * block1k // mallocMax is 8MB
 
-	minReuseBytes = 64 // only reuse bytes if n >= minReuseBytes
-
 	defaultLinkBufferMode = 0
-	// readonlyMask is used to set readonly mode,
-	// which indicate that the buffer node memory is not controlled by itself,
-	// so we cannot reuse the buffer or nocopy read it.
-	readonlyMask uint8 = 1 << 0 // 0000 0001
-	// readonlyMask is used to set nocopyRead mode,
-	// which indicate that the buffer node has been no copy read and cannot reuse the buffer.
-	nocopyReadMask uint8 = 1 << 1 // 0000 0010
+	// flagUnmanaged marks a buffer node whose memory is not allocated by the LinkBuffer
+	// (e.g. user-provided data via WriteDirect, or a zero-size node).
+	// Unmanaged nodes are not reusable and are skipped during buffer growth.
+	flagUnmanaged uint8 = 1 << 0 // 0000 0001
+	// flagReadExposed marks a buffer node whose underlying memory has been returned
+	// directly to user code via a zero-copy Reader method (Next, Peek, Slice, GetBytes).
+	// The buffer may still be referenced by user code until Release is called.
+	flagReadExposed uint8 = 1 << 1 // 0000 0010
 )
-
-// zero-copy slice convert to string
-func unsafeSliceToString(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
-}
-
-// zero-copy slice convert to string
-func unsafeStringToSlice(s string) (b []byte) {
-	p := unsafe.Pointer((*reflect.StringHeader)(unsafe.Pointer(&s)).Data)
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	hdr.Data = uintptr(p)
-	hdr.Cap = len(s)
-	hdr.Len = len(s)
-	return b
-}
 
 // malloc limits the cap of the buffer from mcache.
 func malloc(size, capacity int) []byte {

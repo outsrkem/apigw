@@ -1,8 +1,9 @@
 package session
 
 import (
-	"apigw/src/cfgtypts"
-	"log"
+	"apigw/src/cfgtypes"
+	"apigw/src/slog"
+	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -11,7 +12,21 @@ import (
 	"github.com/hertz-contrib/sessions/redis"
 )
 
-// redis配置
+const (
+	CookieName           = "session"
+	DefaultSessionMaxAge = 60 * 30
+	RedisNetwork         = "tcp"
+	RedisSecretKey       = "wderqeyJ2Y29kZSI6ImxkbG4ifQ.Xr-Lbg.ojkAcx7BZx7590luvEIvhYASA_8"
+	CookieSecret         = "secret"
+	RedisPoolSize        = 10
+)
+
+var GlobalSessionOption = sessions.Options{
+	MaxAge:   DefaultSessionMaxAge,
+	Path:     "/",
+	HttpOnly: true,
+}
+
 type redisCfg struct {
 	addr          string
 	network       string
@@ -21,60 +36,56 @@ type redisCfg struct {
 	sKey          string
 }
 
-// NewRedisCfg 初始化redis配置,redis DB default "0"
-func NewRedisCfg(addr, passwd, db string, sma int) *redisCfg {
-	if db == "" {
-		log.Println(`Use the default db one ("0")`)
-		db = "0"
-	}
+// newRedisCfg 初始化redis配置，db默认0
+func newRedisCfg(addr, passwd string, db, sma int) *redisCfg {
 	return &redisCfg{
 		addr:          addr,
 		passwd:        passwd,
-		db:            db,
+		db:            strconv.Itoa(db),
 		sessionMaxAge: sma,
-		network:       "tcp",
-		sKey:          "wderqeyJ2Y29kZSI6ImxkbG4ifQ.Xr-Lbg.ojkAcx7BZx7590luvEIvhYASA_8",
+		network:       RedisNetwork,
+		sKey:          RedisSecretKey,
 	}
 }
 
-// CreateStoreRedis 使用redis保存session
-func CreateStoreRedis(r *cfgtypts.Redis, sessionMaxAge int) (app.HandlerFunc, error) {
-	rcfg := NewRedisCfg(r.Addr, r.Password, r.Db, sessionMaxAge)
-	log.Println("session redis:", rcfg.network+"://"+r.Addr+"/"+r.Db)
-	// 连接redis
-	store, err := redis.NewStoreWithDB(10, rcfg.network, rcfg.addr, rcfg.passwd, rcfg.db, []byte(rcfg.sKey))
+func CreateStoreRedis(r *cfgtypes.Redis, sessionMaxAge int) (app.HandlerFunc, error) {
+	klog := slog.GetGlobal()
+	rcfg := newRedisCfg(r.Addr, r.Password, r.Db, sessionMaxAge)
+	klog.Infof("session redis connect: %s://%s/%s", rcfg.network, rcfg.addr, rcfg.db)
+
+	store, err := redis.NewStoreWithDB(RedisPoolSize, rcfg.network, rcfg.addr, rcfg.passwd, rcfg.db, []byte(rcfg.sKey))
 	if err != nil {
+		klog.Fatalf("redis session create failed: %v", err)
 		panic(err)
 	}
-	store.Options(sessions.Options{
-		MaxAge: rcfg.sessionMaxAge,
-		Path:   "/",
-	})
-	return sessions.New("session", store), nil
+
+	opt := GlobalSessionOption
+	opt.MaxAge = rcfg.sessionMaxAge
+	store.Options(opt)
+
+	return sessions.New(CookieName, store), nil
 }
 
-// CreateStoreCookie 使用Cookie保存session
+// CreateStoreCookie 客户端Cookie存储Session
 func CreateStoreCookie(sessionMaxAge int) (app.HandlerFunc, error) {
-	log.Println("redis is not configured. Use cookies to save drawing sessions.")
-	store := cookie.NewStore([]byte("secret"))
-	store.Options(sessions.Options{
-		MaxAge: sessionMaxAge,
-		Path:   "/",
-	})
-	return sessions.New("session", store), nil
+	klog := slog.GetGlobal()
+	klog.Info("redis is not configured, use cookie store for session")
+
+	store := cookie.NewStore([]byte(CookieSecret))
+	opt := GlobalSessionOption
+	opt.MaxAge = sessionMaxAge
+	store.Options(opt)
+
+	return sessions.New(CookieName, store), nil
 }
 
-// InitSession 初始化Session
-func InitSession(h *server.Hertz, r *cfgtypts.Redis) {
-	// session设置超时时间(秒), 30min
-	var sessionMaxAge int = 60 * 30
-	var session app.HandlerFunc
-
-	// 如果没有配置redis，则使用Cookie
+// InitSession 全局会话初始化入口
+func InitSession(h *server.Hertz, r *cfgtypes.Redis) {
+	var sessionHandler app.HandlerFunc
 	if r.Addr != "" {
-		session, _ = CreateStoreRedis(r, sessionMaxAge)
+		sessionHandler, _ = CreateStoreRedis(r, DefaultSessionMaxAge)
 	} else {
-		session, _ = CreateStoreCookie(sessionMaxAge)
+		sessionHandler, _ = CreateStoreCookie(DefaultSessionMaxAge)
 	}
-	h.Use(session)
+	h.Use(sessionHandler)
 }

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build race
-// +build race
 
 package netpoll
 
@@ -27,6 +26,14 @@ type LinkBuffer = SafeLinkBuffer
 type SafeLinkBuffer struct {
 	sync.Mutex
 	UnsafeLinkBuffer
+}
+
+// ------------------------------------------ implement copy reader ------------------------------------------
+
+func (b *SafeLinkBuffer) readCopy(p []byte) int {
+	b.Lock()
+	defer b.Unlock()
+	return b.UnsafeLinkBuffer.readCopy(p)
 }
 
 // ------------------------------------------ implement zero-copy reader ------------------------------------------

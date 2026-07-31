@@ -56,9 +56,10 @@ const (
 	// for establishing TCP connections.
 	DefaultDialTimeout = time.Second
 
-	// DefaultMaxConnsPerHost is the maximum number of concurrent connections
-	// http client may establish per host by default (i.e. if
-	// Client.MaxConnsPerHost isn't set).
+	// Deprecated: no longer used as a default. Previously, unconfigured clients
+	// silently fell back to this value, capping connections even when no limit was
+	// intended, causing ErrNoFreeConns when busy connections reached this cap.
+	// Since v0.10.3: MaxConnsPerHost now defaults to 0 (no limit).
 	DefaultMaxConnsPerHost = 512
 
 	// DefaultMaxIdleConnDuration is the default duration before idle keep-alive

@@ -287,6 +287,17 @@ func (vm *VM) registerStructLocked(structType reflect.Type) (*structVM, error) {
 	var sub *structVM
 	for i := 0; i < numField; i++ {
 		structField = structType.Field(i)
+		if f := structField; !f.IsExported() &&
+			strings.HasPrefix(f.Type.PkgPath(), "google.golang.org/protobuf") {
+			// Skip unexported protobuf internal fields to prevent stack overflow.
+			// Fields like `state protoimpl.MessageState` may contain cyclic references
+			// after unmarshaling, causing infinite recursion during field processing.
+			// See: https://github.com/cloudwego/hertz/issues/1410
+			//
+			// This is a temporary solution,
+			// we should fix cyclic references when calling Range
+			continue
+		}
 		field, ok, err := s.newFieldVM(structField)
 		if err != nil {
 			s.err = err
@@ -809,11 +820,10 @@ func FakeBool(v interface{}) bool {
 		}
 		return bol
 	default:
-		vv := dereferenceValue(reflect.ValueOf(v))
-		if vv.IsValid() || vv.IsZero() {
-			return false
-		}
-		return true
+		// https://github.com/bytedance/go-tagexpr/blob/v2.9.2/tagexpr.go#L801
+		// the original implementation either returns false or panics for default case
+		// we always return false for unsupported types to avoid introducing new behavior
+		return false
 	}
 }
 

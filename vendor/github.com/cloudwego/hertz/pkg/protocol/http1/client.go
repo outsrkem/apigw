@@ -288,8 +288,8 @@ type wantConn struct {
 // errTimeout is returned if the response wasn't returned during
 // the given timeout.
 //
-// ErrNoFreeConns is returned if all HostClient.MaxConns connections
-// to the host are busy.
+// If MaxConns is configured (> 0), ErrNoFreeConns is returned
+// when all connections to the host are busy.
 //
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
@@ -315,8 +315,8 @@ func (c *HostClient) DoTimeout(ctx context.Context, req *protocol.Request, resp 
 // errTimeout is returned if the response wasn't returned until
 // the given deadline.
 //
-// ErrNoFreeConns is returned if all HostClient.MaxConns connections
-// to the host are busy.
+// If MaxConns is configured (> 0), ErrNoFreeConns is returned
+// when all connections to the host are busy.
 //
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
@@ -338,8 +338,8 @@ func (c *HostClient) DoDeadline(ctx context.Context, req *protocol.Request, resp
 //
 // Response is ignored if resp is nil.
 //
-// ErrNoFreeConns is returned if all DefaultMaxConnsPerHost connections
-// to the requested host are busy.
+// If MaxConns is configured (> 0), ErrNoFreeConns is returned
+// when all connections to the requested host are busy.
 //
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
@@ -357,8 +357,8 @@ func (c *HostClient) DoRedirects(ctx context.Context, req *protocol.Request, res
 //
 // Response is ignored if resp is nil.
 //
-// ErrNoFreeConns is returned if all HostClient.MaxConns connections
-// to the host are busy.
+// If MaxConns is configured (> 0), ErrNoFreeConns is returned
+// when all connections to the host are busy.
 //
 // It is recommended obtaining req and resp via AcquireRequest
 // and AcquireResponse in performance-critical code.
@@ -472,51 +472,48 @@ func (c *HostClient) do(req *protocol.Request, resp *protocol.Response) (bool, e
 	return canIdempotentRetry, err
 }
 
-type requestConfig struct {
-	dialTimeout  time.Duration
-	readTimeout  time.Duration
-	writeTimeout time.Duration
+func timeUntil(deadline time.Time) time.Duration {
+	timeout := time.Until(deadline)
+	if timeout <= 0 {
+		return -1
+	}
+	return timeout
 }
 
-func (c *HostClient) preHandleConfig(o *config.RequestOptions) requestConfig {
-	rc := requestConfig{
-		dialTimeout:  c.DialTimeout,
-		readTimeout:  c.ReadTimeout,
-		writeTimeout: c.WriteTimeout,
+// calcTimeout checks deadline and returns timeout for conn.SetXXXTimeout
+//
+// returns 0 which means no timeout
+// returns -1 if deadline exceeded
+func calcTimeout(deadline time.Time, timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		if deadline.IsZero() {
+			return 0
+		}
+		return timeUntil(deadline)
 	}
-	if o.ReadTimeout() > 0 {
-		rc.readTimeout = o.ReadTimeout()
+	if deadline.IsZero() {
+		return timeout // must > 0
 	}
-
-	if o.WriteTimeout() > 0 {
-		rc.writeTimeout = o.WriteTimeout()
+	if d := timeUntil(deadline); d < timeout {
+		return d
 	}
-
-	if o.DialTimeout() > 0 {
-		rc.dialTimeout = o.DialTimeout()
-	}
-
-	return rc
+	return timeout
 }
 
-func updateReqTimeout(reqTimeout, compareTimeout time.Duration, before time.Time) (shouldCloseConn bool, timeout time.Duration) {
-	if reqTimeout <= 0 {
-		return false, compareTimeout
+func (c *HostClient) getTimeouts(o *config.RequestOptions) (dtimeout, rtimeout, wtimeout time.Duration) {
+	dtimeout = c.DialTimeout
+	if v := o.DialTimeout(); v > 0 {
+		dtimeout = v
 	}
-	left := reqTimeout - time.Since(before)
-	if left <= 0 {
-		return true, 0
+	rtimeout = c.ReadTimeout
+	if v := o.ReadTimeout(); v > 0 {
+		rtimeout = v
 	}
-
-	if compareTimeout <= 0 {
-		return false, left
+	wtimeout = c.WriteTimeout
+	if v := o.WriteTimeout(); v > 0 {
+		wtimeout = v
 	}
-
-	if left > compareTimeout {
-		return false, compareTimeout
-	}
-
-	return false, left
+	return
 }
 
 func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Response) (bool, error) {
@@ -529,8 +526,6 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 
 	atomic.StoreUint32(&c.lastUseTime, uint32(time.Now().Unix()-startTimeUnix))
 
-	rc := c.preHandleConfig(req.Options())
-
 	// Free up resources occupied by response before sending the request,
 	// so the GC may reclaim these resources (e.g. response body).
 	// backing up SkipBody in case it was set explicitly
@@ -541,19 +536,48 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 	if c.DisablePathNormalizing {
 		req.URI().DisablePathNormalizing = true
 	}
-	reqTimeout := req.Options().RequestTimeout()
-	begin := req.Options().StartTime()
 
-	dialTimeout := rc.dialTimeout
-	if (reqTimeout > 0 && reqTimeout < dialTimeout) || dialTimeout == 0 {
-		dialTimeout = reqTimeout
+	o := req.Options()
+	deadline := time.Time{}
+	if v := o.RequestTimeout(); v > 0 {
+		deadline = o.StartTime().Add(v)
 	}
-	cc, inPool, err := c.acquireConn(dialTimeout)
-	// if getting connection error, fast fail
+
+	dtimeout, rtimeout, wtimeout := c.getTimeouts(o)
+
+	// dial starts
+
+	timeout := calcTimeout(deadline, dtimeout)
+	if timeout < 0 {
+		return false, errTimeout
+	}
+	cc, inPool, err := c.acquireConn(timeout)
 	if err != nil {
 		return false, err
 	}
 	conn := cc.c
+	resp.ParseNetAddr(conn)
+
+	if c.IsTLS && timeout > 0 { // force handshake using dial timeout
+		// NOTE: Handshake() here is optional as Write would tirigger handshake
+		// but for tls handshake, it writes and reads, and we need to set deadline for that.
+		tlsconn, ok := conn.(network.ConnTLSer)
+		if ok {
+			// currently netpoll doesn't support conn.SetDeadline nor tls, but crypto/tls.Conn does.
+			// in case netpoll supports tls in the future, may need to change this to
+			// call both conn.SetReadTimeout, and conn.SetWriteTimeout
+			err := conn.SetDeadline(time.Now().Add(timeout))
+			if err == nil {
+				err = tlsconn.Handshake()
+				// NOTE: no need conn.SetDeadline(time.Time{})?
+				// we always reset before Write and Read
+			}
+			if err != nil {
+				c.closeConn(cc)
+				return true, err
+			}
+		}
+	}
 
 	usingProxy := false
 	if c.ProxyURI != nil && bytes.Equal(req.Scheme(), bytestr.StrHTTP) {
@@ -561,17 +585,15 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 		proxy.SetProxyAuthHeader(&req.Header, c.ProxyURI)
 	}
 
-	resp.ParseNetAddr(conn)
+	// write starts
 
-	shouldClose, timeout := updateReqTimeout(reqTimeout, rc.writeTimeout, begin)
-	if shouldClose {
+	timeout = calcTimeout(deadline, wtimeout)
+	if timeout < 0 {
 		c.closeConn(cc)
 		return false, errTimeout
 	}
-
 	if err = conn.SetWriteTimeout(timeout); err != nil {
 		c.closeConn(cc)
-		// try another connection if retry is enabled
 		return true, err
 	}
 
@@ -595,55 +617,56 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 	if resetConnection {
 		req.Header.ResetConnectionClose()
 	}
-
 	if err == nil {
 		err = zw.Flush()
 	}
-	// error happened when writing request, close the connection, and try another connection if retry is enabled
 	if err != nil {
 		defer c.closeConn(cc)
-
 		errNorm, ok := conn.(network.ErrorNormalization)
 		if ok {
 			err = errNorm.ToHertzError(err)
 		}
-
 		if !errors.Is(err, errs.ErrConnectionClosed) {
 			return true, err
 		}
 
-		// set a protection timeout to avoid infinite loop.
-		if conn.SetReadTimeout(time.Second) != nil {
+		// introduced by https://github.com/cloudwego/hertz/pull/412
+		// only for reading 4xx err
+
+		// short period of time (50ms) is enough for this case
+		// NOTE: can't use deadline since it likely already exceeded deadline when write
+		timeout = 50 * time.Millisecond
+		if rtimeout > 0 && timeout > rtimeout {
+			timeout = rtimeout
+		}
+		if conn.SetReadTimeout(timeout) != nil {
 			return true, err
 		}
-
-		// Only if the connection is closed while writing the request. Try to parse the response and return.
-		// In this case, the request/response is considered as successful.
-		// Otherwise, return the former error.
 		zr := c.acquireReader(conn)
 		defer zr.Release()
 		if respI.ReadHeaderAndLimitBody(resp, zr, c.MaxResponseBodySize) == nil {
-			return false, nil
+			if code := resp.StatusCode(); code >= 400 && code < 600 {
+				// strictly for 4xx only, but 5xx is also acceptable.
+				// both can be considered better response rather than write err
+				return false, nil
+			}
 		}
 
 		if inPool {
 			err = errs.ErrBadPoolConn
 		}
-
 		return true, err
 	}
 
-	shouldClose, timeout = updateReqTimeout(reqTimeout, rc.readTimeout, begin)
-	if shouldClose {
+	// read starts
+
+	timeout = calcTimeout(deadline, rtimeout)
+	if timeout < 0 {
 		c.closeConn(cc)
 		return false, errTimeout
 	}
-
-	// Set Deadline every time, since golang has fixed the performance issue
-	// See https://github.com/golang/go/issues/15133#issuecomment-271571395 for details
 	if err = conn.SetReadTimeout(timeout); err != nil {
 		c.closeConn(cc)
-		// try another connection if retry is enabled
 		return true, err
 	}
 
@@ -683,10 +706,24 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 	// This is to solve the circular dependency problem of Response and BodyStream
 	shouldCloseConn := false
 
-	if !c.ResponseBodyStream {
-		err = respI.ReadHeaderAndLimitBody(resp, zr, c.MaxResponseBodySize)
+	if err = respI.ReadHeaders(resp, zr); err != nil {
+		_ = zr.Release()
+		c.closeConn(cc)
+		return true, err
+	}
+
+	stream := c.ResponseBodyStream
+
+	// if it's server-sent event response,
+	// we should set stream=true or it may block till timeout
+	if !stream && resp.Header.ContentLength() < 0 &&
+		bytes.HasPrefix(resp.Header.ContentType(), bytestr.MIMETextEventStream) {
+		stream = true
+	}
+	if !stream {
+		err = respI.ReadRespBody(resp, zr, c.MaxResponseBodySize)
 	} else {
-		err = respI.ReadBodyStream(resp, zr, c.MaxResponseBodySize, func(shouldClose bool) error {
+		err = respI.ReadRespBodyStream(resp, zr, c.MaxResponseBodySize, func(shouldClose bool) error {
 			if shouldCloseConn || shouldClose {
 				c.closeConn(cc)
 			} else {
@@ -714,7 +751,7 @@ func (c *HostClient) doNonNilReqResp(req *protocol.Request, resp *protocol.Respo
 	}
 
 	// In stream mode, we still can close/release the connection immediately if there is no content on the wire.
-	if c.ResponseBodyStream && resp.BodyStream() != protocol.NoResponseBody {
+	if stream && resp.BodyStream() != protocol.NoResponseBody {
 		return false, nil
 	}
 
@@ -787,11 +824,7 @@ func (c *HostClient) acquireConn(dialTimeout time.Duration) (cc *clientConn, inP
 	c.connsLock.Lock()
 	n = len(c.conns)
 	if n == 0 {
-		maxConns := c.MaxConns
-		if maxConns <= 0 {
-			maxConns = consts.DefaultMaxConnsPerHost
-		}
-		if c.connsCount < maxConns {
+		if c.MaxConns <= 0 || c.connsCount < c.MaxConns {
 			c.connsCount++
 			createConn = true
 			if !c.connsCleanerRun {
@@ -1018,6 +1051,11 @@ func releaseClientConn(cc *clientConn) {
 var clientConnPool sync.Pool
 
 func (c *HostClient) releaseConn(cc *clientConn) {
+	if cc.c.Len() > 0 {
+		// unexpected buffered data due to malformed response
+		c.closeConn(cc)
+		return
+	}
 	cc.lastUseTime = time.Now()
 	if c.MaxConnWaitTimeout <= 0 {
 		c.connsLock.Lock()
@@ -1347,7 +1385,7 @@ type ClientOptions struct {
 	// You can change this value while the HostClient is being used
 	// using HostClient.SetMaxConns(value)
 	//
-	// DefaultMaxConnsPerHost is used if not set.
+	// no limit if <= 0.
 	MaxConns int
 
 	// Keep-alive connections are closed after this duration.

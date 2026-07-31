@@ -6,7 +6,6 @@
 // All CloudWeGo Modifications are Copyright 2022 CloudWeGo authors.
 
 //go:build aix || darwin || dragonfly || freebsd || linux || nacl || netbsd || openbsd || solaris
-// +build aix darwin dragonfly freebsd linux nacl netbsd openbsd solaris
 
 package netpoll
 
@@ -20,14 +19,9 @@ import (
 	"time"
 )
 
-var (
-	// aLongTimeAgo is a non-zero time, far in the past, used for
-	// immediate cancelation of dials.
-	aLongTimeAgo = time.Unix(1, 0)
-	// nonDeadline and noCancel are just zero values for
-	// readability with functions taking too many parameters.
-	noDeadline = time.Time{}
-)
+// nonDeadline and noCancel are just zero values for
+// readability with functions taking too many parameters.
+var noDeadline = time.Time{}
 
 type netFD struct {
 	// file descriptor
@@ -38,8 +32,7 @@ type netFD struct {
 	pd *pollDesc
 	// closed marks whether fd has expired
 	closed uint32
-	// Whether this is a streaming descriptor, as opposed to a
-	// packet-based descriptor like a UDP socket. Immutable.
+	// Whether this is a streaming descriptor. Immutable.
 	isStream bool
 	// Whether a zero byte read indicates EOF. This is false for a
 	// message based socket connection.
@@ -47,7 +40,7 @@ type netFD struct {
 	family        int    // AF_INET, AF_INET6, syscall.AF_UNIX
 	sotype        int    // syscall.SOCK_STREAM, syscall.SOCK_DGRAM, syscall.SOCK_RAW
 	isConnected   bool   // handshake completed or use of association with peer
-	network       string // tcp tcp4 tcp6, udp, udp4, udp6, ip, ip4, ip6, unix, unixgram, unixpacket
+	network       string // tcp, tcp4, tcp6, unix, unixgram, unixpacket
 	localAddr     net.Addr
 	remoteAddr    net.Addr
 	// for detaching conn from poller
@@ -55,7 +48,7 @@ type netFD struct {
 }
 
 func newNetFD(fd, family, sotype int, net string) *netFD {
-	var ret = &netFD{}
+	ret := &netFD{}
 	ret.fd = fd
 	ret.network = net
 	ret.family = family
@@ -137,6 +130,11 @@ func (c *netFD) connect(ctx context.Context, la, ra syscall.Sockaddr) (rsa sysca
 	}
 
 	c.pd = newPollDesc(c.fd)
+	defer func() {
+		// free operator to avoid leak
+		c.pd.operator.Free()
+		c.pd = nil
+	}()
 	for {
 		// Performing multiple connect system calls on a
 		// non-blocking socket under Unix variants does not

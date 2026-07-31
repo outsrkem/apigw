@@ -67,9 +67,13 @@ func WriteHeader(h *protocol.RequestHeader, w network.Writer) error {
 }
 
 func ReadHeader(h *protocol.RequestHeader, r network.Reader) error {
+	return ReadHeaderWithLimit(h, r, 0)
+}
+
+func ReadHeaderWithLimit(h *protocol.RequestHeader, r network.Reader, maxHeaderBytes int) error {
 	n := 1
 	for {
-		err := tryRead(h, r, n)
+		err := tryReadWithLimit(h, r, n, maxHeaderBytes)
 		if err == nil {
 			return nil
 		}
@@ -87,7 +91,7 @@ func ReadHeader(h *protocol.RequestHeader, r network.Reader) error {
 	}
 }
 
-func tryRead(h *protocol.RequestHeader, r network.Reader, n int) error {
+func tryReadWithLimit(h *protocol.RequestHeader, r network.Reader, n, maxHeaderBytes int) error {
 	h.ResetSkipNormalize()
 	b, err := r.Peek(n)
 	if len(b) == 0 {
@@ -104,8 +108,14 @@ func tryRead(h *protocol.RequestHeader, r network.Reader, n int) error {
 		return errEOFReadHeader
 	}
 	b = ext.MustPeekBuffered(r)
+	if maxHeaderBytes > 0 && len(b) > maxHeaderBytes {
+		b = b[:maxHeaderBytes]
+	}
 	headersLen, errParse := parse(h, b)
 	if errParse != nil {
+		if maxHeaderBytes > 0 && len(b) >= maxHeaderBytes && errors.Is(errParse, errs.ErrNeedMore) {
+			return errHeaderTooLarge
+		}
 		return ext.HeaderError("request", err, errParse, b)
 	}
 	ext.MustDiscard(r, headersLen)
@@ -117,53 +127,97 @@ func parse(h *protocol.RequestHeader, buf []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
 	rawHeaders, _, err := ext.ReadRawHeaders(h.RawHeaders()[:0], buf[m:])
 	h.SetRawHeaders(rawHeaders)
 	if err != nil {
 		return 0, err
 	}
-	var n int
-	n, err = parseHeaders(h, buf[m:])
+	n, err := parseHeaders(h, buf[m:])
 	if err != nil {
 		return 0, err
 	}
 	return m + n, nil
 }
 
+const (
+	maxCheckMethodLen = 10
+
+	// reuse ValidHeaderFieldNameTable for Method, both are `token`
+	// see:
+	//	https://www.rfc-editor.org/rfc/rfc9110.html#name-methods
+	//	https://www.rfc-editor.org/rfc/rfc9110.html#name-field-names
+	validMethodCharTable = bytesconv.ValidHeaderFieldNameTable
+)
+
+var errMalformedHTTPRequest = errors.New("malformed HTTP request")
+
+// errBothTEAndCL is returned when a request contains both Transfer-Encoding and Content-Length headers.
+// This is a potential HTTP request smuggling attack vector.
+// See RFC 9112 Section 6.3 Rule 3.
+var errBothTEAndCL = errors.New("both Transfer-Encoding and Content-Length headers are present in request: potential HTTP request smuggling")
+
+// errDuplicateCL is returned when a request contains multiple Content-Length headers with different values.
+// RFC 9112 Section 6.3 Rule 5 treats this as an unrecoverable error (normalization is no longer permitted).
+var errDuplicateCL = errors.New("duplicate Content-Length header with conflicting values")
+
+// errUnsupportedTE is returned when the Transfer-Encoding value is anything other than "chunked".
+// Like Go net/http and nginx, only "chunked" is accepted to minimize the smuggling attack surface.
+var errUnsupportedTE = errors.New("unsupported Transfer-Encoding: only \"chunked\" is accepted")
+
+// errMultipleTE is returned when more than one Transfer-Encoding header line is present.
+// Different proxies merge multi-line headers inconsistently, making it a smuggling vector.
+var errMultipleTE = errors.New("multiple Transfer-Encoding headers are not allowed")
+
+// request-line = method SP request-target SP HTTP-version CRLF
 func parseFirstLine(h *protocol.RequestHeader, buf []byte) (int, error) {
-	bNext := buf
-	var b []byte
-	var err error
-	for len(b) == 0 {
-		if b, bNext, err = utils.NextLine(bNext); err != nil {
-			return 0, err
+	b, leftb, err := utils.NextLine(buf)
+	if err != nil {
+		// errs.ErrNeedMore?
+		// check malformed HTTP request before reading more data
+		// NOTE:
+		//  only check method bytes if errs.ErrNeedMore for closing malformed connections.
+		//  for performance concern, it won't be checked in the hot path.
+		for i, c := range buf {
+			if c == ' ' || i > maxCheckMethodLen {
+				break // skip if SP or reach maxCheckMethodLen
+			}
+			if validMethodCharTable[c] == 0 {
+				return 0, errMalformedHTTPRequest
+			}
 		}
+		return 0, err
 	}
 
 	// parse method
 	n := bytes.IndexByte(b, ' ')
 	if n <= 0 {
-		return 0, fmt.Errorf("cannot find http request method in %q", ext.BufferSnippet(buf))
+		return 0, errMalformedHTTPRequest
 	}
 	h.SetMethodBytes(b[:n])
 	b = b[n+1:]
 
-	// Set default protocol
-	h.SetProtocol(consts.HTTP11)
-	// parse requestURI
-	n = bytes.LastIndexByte(b, ' ')
-	if n < 0 {
-		h.SetProtocol(consts.HTTP10)
-		n = len(b)
-	} else if n == 0 {
-		return 0, fmt.Errorf("requestURI cannot be empty in %q", buf)
-	} else if !bytes.Equal(b[n+1:], bytestr.StrHTTP11) {
-		h.SetProtocol(consts.HTTP10)
+	// parse request-target (uri)
+	n = bytes.IndexByte(b, ' ')
+	if n <= 0 {
+		return 0, errMalformedHTTPRequest
 	}
 	h.SetRequestURIBytes(b[:n])
+	b = b[n+1:]
 
-	return len(buf) - len(bNext), nil
+	// parse http protocol
+	switch string(b) {
+	case consts.HTTP11: // likely HTTP/1.1
+		h.SetProtocol(consts.HTTP11)
+	case consts.HTTP10:
+		h.SetProtocol(consts.HTTP10)
+	default:
+		if len(b) < 5 || string(b[:5]) != "HTTP/" {
+			return 0, errMalformedHTTPRequest
+		}
+		// XXX: all other cases are considered to be HTTP/1.0 for safe
+		h.SetProtocol(consts.HTTP10)
+	}
+	return len(buf) - len(leftb), nil
 }
 
 // validHeaderFieldValue is equal to httpguts.ValidHeaderFieldValue（shares the same context）
@@ -178,6 +232,12 @@ func validHeaderFieldValue(val []byte) bool {
 
 func parseHeaders(h *protocol.RequestHeader, buf []byte) (int, error) {
 	h.InitContentLengthWithValue(-2)
+
+	// teSeen tracks whether any Transfer-Encoding header has been seen.
+	// Each TE line is validated individually rather than merged — multiple TE lines
+	// (e.g. "TE: gzip" then "TE: chunked") are strictly rejected. This is intentional:
+	// different proxies merge multi-line headers inconsistently, making it a smuggling vector.
+	var teSeen bool
 
 	var s ext.HeaderScanner
 	s.B = buf
@@ -215,7 +275,7 @@ func parseHeaders(h *protocol.RequestHeader, buf []byte) (int, error) {
 					continue
 				}
 				if utils.CaseInsensitiveCompare(s.Key, bytestr.StrContentLength) {
-					if h.ContentLength() != -1 {
+					if !teSeen {
 						var nerr error
 						var contentLength int
 						if contentLength, nerr = protocol.ParseContentLength(s.Value); nerr != nil {
@@ -224,9 +284,17 @@ func parseHeaders(h *protocol.RequestHeader, buf []byte) (int, error) {
 							}
 							h.InitContentLengthWithValue(-2)
 						} else {
+							// Reject duplicate Content-Length with conflicting values.
+							// RFC 9112 Section 6.3 Rule 5 treats mismatched values as an unrecoverable error.
+							if h.ContentLength() >= 0 && h.ContentLength() != contentLength {
+								return 0, errDuplicateCL
+							}
 							h.InitContentLengthWithValue(contentLength)
 							h.SetContentLengthBytes(s.Value)
 						}
+					} else {
+						// Transfer-Encoding already seen; reject per RFC 9112 Section 6.3 Rule 3.
+						return 0, errBothTEAndCL
 					}
 					continue
 				}
@@ -241,10 +309,26 @@ func parseHeaders(h *protocol.RequestHeader, buf []byte) (int, error) {
 				}
 			case 't':
 				if utils.CaseInsensitiveCompare(s.Key, bytestr.StrTransferEncoding) {
-					if !bytes.Equal(s.Value, bytestr.StrIdentity) {
-						h.InitContentLengthWithValue(-1)
-						h.SetArgBytes(bytestr.StrTransferEncoding, bytestr.StrChunked, protocol.ArgsHasValue)
+					// Any TE + CL combination is a potential HTTP request smuggling vector.
+					// Reject per RFC 9112 Section 6.3 Rule 3.
+					if h.ContentLength() >= 0 {
+						return 0, errBothTEAndCL
 					}
+					// Multiple Transfer-Encoding header lines are strictly rejected.
+					// Different proxies merge multi-line headers inconsistently, making it a smuggling vector.
+					if teSeen {
+						return 0, errMultipleTE
+					}
+					teSeen = true
+					// Like Go net/http and nginx, only accept "chunked" as the sole
+					// Transfer-Encoding value. Multi-coding values (e.g. "gzip, chunked")
+					// are not used in practice but can cause parsing inconsistencies
+					// across proxies, creating a smuggling vector.
+					if !bytes.EqualFold(s.Value, bytestr.StrChunked) {
+						return 0, errUnsupportedTE
+					}
+					h.InitContentLengthWithValue(-1)
+					h.SetArgBytes(bytestr.StrTransferEncoding, bytestr.StrChunked, protocol.ArgsHasValue)
 					continue
 				}
 				if utils.CaseInsensitiveCompare(s.Key, bytestr.StrTrailer) {

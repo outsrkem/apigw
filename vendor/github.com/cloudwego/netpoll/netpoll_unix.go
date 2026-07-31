@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build darwin || netbsd || freebsd || openbsd || dragonfly || linux
-// +build darwin netbsd freebsd openbsd dragonfly linux
 
 package netpoll
 
@@ -25,6 +24,8 @@ import (
 	"os"
 	"runtime"
 	"sync"
+
+	"github.com/cloudwego/netpoll/internal/runner"
 )
 
 var (
@@ -52,7 +53,7 @@ func Configure(config Config) (err error) {
 	}
 
 	if config.Runner != nil {
-		setRunner(config.Runner)
+		runner.RunTask = config.Runner
 	}
 	if config.LoggerOutput != nil {
 		logger = log.New(config.LoggerOutput, "", log.LstdFlags)
@@ -63,7 +64,6 @@ func Configure(config Config) (err error) {
 		}
 	}
 
-	featureAlwaysNoCopyRead = config.AlwaysNoCopyRead
 	return nil
 }
 
@@ -99,9 +99,10 @@ func SetLoggerOutput(w io.Writer) {
 }
 
 // SetRunner set the runner function for every OnRequest/OnConnect callback
-// Deprecated: use Configure instead.
+//
+// Deprecated: use Configure and specify config.Runner instead.
 func SetRunner(f func(ctx context.Context, f func())) {
-	setRunner(f)
+	runner.RunTask = f
 }
 
 // DisableGopool will remove gopool(the goroutine pool used to run OnRequest),
@@ -109,9 +110,11 @@ func SetRunner(f func(ctx context.Context, f func())) {
 // Usually, OnRequest will cause stack expansion, which can be solved by reusing goroutine.
 // But if you can confirm that the OnRequest will not cause stack expansion,
 // it is recommended to use DisableGopool to reduce redundancy and improve performance.
-// Deprecated: use Configure instead.
+//
+// Deprecated: use Configure() and specify config.Runner instead.
 func DisableGopool() error {
-	return disableGopool()
+	runner.UseGoRunTask()
+	return nil
 }
 
 // NewEventLoop .
@@ -155,7 +158,7 @@ func (evl *eventLoop) Serve(ln net.Listener) error {
 // Shutdown signals a shutdown a begins server closing.
 func (evl *eventLoop) Shutdown(ctx context.Context) error {
 	evl.Lock()
-	var svr = evl.svr
+	svr := evl.svr
 	evl.svr = nil
 	evl.Unlock()
 

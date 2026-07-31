@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -88,7 +87,7 @@ func (m *manager) Run() (err error) {
 	if numLoops == len(m.polls) {
 		return nil
 	}
-	var polls = make([]Poll, numLoops)
+	polls := make([]Poll, numLoops)
 	if numLoops < len(m.polls) {
 		// shrink polls
 		copy(polls, m.polls[:numLoops])
@@ -144,6 +143,7 @@ START:
 	// m.Run() will finish very quickly, so will not many goroutines block on Pick.
 	_ = m.Run()
 
+	//nolint:staticcheck // SA9003: empty branch
 	if !atomic.CompareAndSwapInt32(&m.status, managerInitializing, managerInitialized) {
 		// SetNumLoops called during m.Run() which cause CAS failed
 		// The polls will be adjusted next Pick

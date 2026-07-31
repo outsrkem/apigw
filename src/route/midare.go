@@ -12,7 +12,7 @@ import (
 
 func RequestId() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		klog := slog.FromContext(c)
+		klog := slog.FromCtx(ctx)
 		xRequestId := string(c.GetHeader("X-Request-Id"))
 		if xRequestId == "" {
 			xRequestId = strings.ReplaceAll(uuid.New().String(), "-", "")
@@ -22,7 +22,6 @@ func RequestId() app.HandlerFunc {
 		c.Set("xRequestId", xRequestId)
 		klog.Infof("Accept the request. request id: [%s]", xRequestId)
 		c.Next(ctx)
-		// 如果响应头中没有 X-Request-Id，则添加它
 		if c.Response.Header.Get("X-Request-Id") == "" {
 			c.Response.Header.Set("X-Request-Id", xRequestId)
 			klog.Debugf("Set X-Request-Id in response: %s", xRequestId)
@@ -32,7 +31,7 @@ func RequestId() app.HandlerFunc {
 
 func RequestRecorder() app.HandlerFunc {
 	return func(ctx context.Context, c *app.RequestContext) {
-		klog := slog.FromContext(c)
+		klog := slog.FromCtx(ctx)
 		start := time.Now()
 		c.Next(ctx)
 		stop := time.Now()
