@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -26,6 +25,22 @@ import (
 // DialConnection is a default implementation of Dialer.
 func DialConnection(network, address string, timeout time.Duration) (connection Connection, err error) {
 	return defaultDialer.DialConnection(network, address, timeout)
+}
+
+// NewFDConnection create a Connection initialized by any fd
+// It's useful for writing unit tests for functions that have args with the type of netpoll.Connection
+// The typical usage is like:
+//
+//	rfd, wfd := netpoll.GetSysFdPairs()
+//	rconn, _ = netpoll.NewFDConnection(rfd)
+//	wconn, _ = netpoll.NewFDConnection(wfd)
+func NewFDConnection(fd int) (Connection, error) {
+	conn := new(connection)
+	err := conn.init(&netFD{fd: fd}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // NewDialer only support TCP and unix socket now.
@@ -54,7 +69,6 @@ func (d *dialer) DialConnection(network, address string, timeout time.Duration) 
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		return d.dialTCP(ctx, network, address)
-	// case "udp", "udp4", "udp6":  // TODO: unsupported now
 	case "unix", "unixgram", "unixpacket":
 		raddr := &UnixAddr{
 			UnixAddr: net.UnixAddr{Name: address, Net: network},
@@ -89,7 +103,7 @@ func (d *dialer) dialTCP(ctx context.Context, network, address string) (connecti
 	}
 
 	var firstErr error // The error from the first address is most relevant.
-	var tcpAddr = &TCPAddr{}
+	tcpAddr := &TCPAddr{}
 	for _, ipaddr := range ipaddrs {
 		tcpAddr.IP = ipaddr.IP
 		tcpAddr.Port = portnum

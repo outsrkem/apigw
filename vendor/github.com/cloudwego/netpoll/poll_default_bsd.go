@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build darwin || netbsd || freebsd || openbsd || dragonfly
-// +build darwin netbsd freebsd openbsd dragonfly
 
 package netpoll
 
@@ -52,7 +51,7 @@ func openDefaultPoll() (*defaultPoll, error) {
 type defaultPoll struct {
 	fd      int
 	trigger uint32
-	m       sync.Map       // only used in go:race
+	m       sync.Map       //nolint:unused // only used in go:race
 	opcache *operatorCache // operator cache
 	hups    []func(p Poll) error
 }
@@ -60,8 +59,8 @@ type defaultPoll struct {
 // Wait implements Poll.
 func (p *defaultPoll) Wait() error {
 	// init
-	var size, caps = 1024, barriercap
-	var events, barriers = make([]syscall.Kevent_t, size), make([]barrier, size)
+	size, caps := 1024, barriercap
+	events, barriers := make([]syscall.Kevent_t, size), make([]barrier, size)
 	for i := range barriers {
 		barriers[i].bs = make([][]byte, caps)
 		barriers[i].ivs = make([]syscall.Iovec, caps)
@@ -78,14 +77,14 @@ func (p *defaultPoll) Wait() error {
 			return err
 		}
 		for i := 0; i < n; i++ {
-			var fd = int(events[i].Ident)
+			fd := int(events[i].Ident)
 			// trigger
 			if fd == 0 {
 				// clean trigger
 				atomic.StoreUint32(&p.trigger, 0)
 				continue
 			}
-			var operator = p.getOperator(fd, unsafe.Pointer(&events[i].Udata))
+			operator := p.getOperator(fd, unsafe.Pointer(&events[i].Udata))
 			if operator == nil || !operator.do() {
 				continue
 			}
@@ -102,9 +101,9 @@ func (p *defaultPoll) Wait() error {
 					operator.OnRead(p)
 				} else {
 					// only for connection
-					var bs = operator.Inputs(barriers[i].bs)
+					bs := operator.Inputs(barriers[i].bs)
 					if len(bs) > 0 {
-						var n, err = ioread(operator.FD, bs, barriers[i].ivs)
+						n, err := ioread(operator.FD, bs, barriers[i].ivs)
 						operator.InputAck(n)
 						totalRead += n
 						if err != nil {
@@ -135,10 +134,10 @@ func (p *defaultPoll) Wait() error {
 					operator.OnWrite(p)
 				} else {
 					// only for connection
-					var bs, supportZeroCopy = operator.Outputs(barriers[i].bs)
+					bs, supportZeroCopy := operator.Outputs(barriers[i].bs)
 					if len(bs) > 0 {
 						// TODO: Let the upper layer pass in whether to use ZeroCopy.
-						var n, err = iosend(operator.FD, bs, barriers[i].ivs, false && supportZeroCopy)
+						n, err := iosend(operator.FD, bs, barriers[i].ivs, false && supportZeroCopy)
 						operator.OutputAck(n)
 						if err != nil {
 							p.appendHup(operator)
@@ -157,7 +156,7 @@ func (p *defaultPoll) Wait() error {
 
 // TODO: Close will bad file descriptor here
 func (p *defaultPoll) Close() error {
-	var err = syscall.Close(p.fd)
+	err := syscall.Close(p.fd)
 	return err
 }
 
@@ -176,7 +175,7 @@ func (p *defaultPoll) Trigger() error {
 
 // Control implements Poll.
 func (p *defaultPoll) Control(operator *FDOperator, event PollEvent) error {
-	var evs = make([]syscall.Kevent_t, 1)
+	evs := make([]syscall.Kevent_t, 1)
 	evs[0].Ident = uint64(operator.FD)
 	p.setOperator(unsafe.Pointer(&evs[0].Udata), operator)
 	switch event {

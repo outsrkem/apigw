@@ -58,7 +58,7 @@ func Encryption(plain string) string {
 
 // Decryption decrypts a cipher text string.
 func Decryption(cipherText string) (string, error) {
-	klog := slog.FromContext(nil)
+	klog := slog.GetGlobal()
 	encryptedHex, err := hex.DecodeString(cipherText)
 	if err != nil {
 		klog.Error("Unable to decode hexadecimal string: ", err)

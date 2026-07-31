@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -24,12 +23,11 @@ import (
 func newPollDesc(fd int) *pollDesc {
 	pd := &pollDesc{}
 	poll := pollmanager.Pick()
-	pd.operator = &FDOperator{
-		poll:    poll,
-		FD:      fd,
-		OnWrite: pd.onwrite,
-		OnHup:   pd.onhup,
-	}
+	pd.operator = poll.Alloc()
+	pd.operator.poll = poll
+	pd.operator.FD = fd
+	pd.operator.OnWrite = pd.onwrite
+	pd.operator.OnHup = pd.onhup
 	pd.writeTrigger = make(chan struct{})
 	pd.closeTrigger = make(chan struct{})
 	return pd
@@ -53,25 +51,21 @@ func (pd *pollDesc) WaitWrite(ctx context.Context) (err error) {
 	}
 
 	select {
+	case <-pd.writeTrigger: // triggered by poller
 	case <-pd.closeTrigger: // triggered by poller
 		// no need to detach, since poller has done it in OnHup.
 		return Exception(ErrConnClosed, "by peer")
-	case <-pd.writeTrigger: // triggered by poller
-		err = nil
 	case <-ctx.Done(): // triggered by ctx
 		// deregister from poller, upper caller function will close fd
-		// detach first but there's a very small possibility that operator is doing in poller,
-		// so need call unused() to wait operator done
 		pd.detach()
-		pd.operator.unused()
-		err = mapErr(ctx.Err())
+		return mapErr(ctx.Err())
 	}
 	// double check close trigger
 	select {
 	case <-pd.closeTrigger:
 		return Exception(ErrConnClosed, "by peer")
 	default:
-		return err
+		return nil
 	}
 }
 

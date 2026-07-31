@@ -162,6 +162,26 @@ func WithHostPorts(hp string) config.Option {
 	}}
 }
 
+// WithListener sets the listener to use.
+//
+// If set, the server will use this listener instead of creating a new one.
+// This is useful for custom listener implementations or testing.
+// Note: This will update Network and Addr based on the listener's address,
+// and reset ListenConfig since it's not needed when a listener is provided.
+//
+// WARNING: Custom net.Listener implementations may not be supported by cloudwego/netpoll.
+// If your custom listener doesn't support netpoll, you need to explicitly set the transporter to the standard library:
+//
+//	WithListener(customListener), WithTransport(standard.NewTransporter)
+func WithListener(ln net.Listener) config.Option {
+	return config.Option{F: func(o *config.Options) {
+		o.Listener = ln
+		o.Network = ln.Addr().Network()
+		o.Addr = ln.Addr().String()
+		o.ListenConfig = nil
+	}}
+}
+
 // WithBasePath sets basePath.Must be "/" prefix and suffix,If not the default concatenate "/"
 func WithBasePath(basePath string) config.Option {
 	return config.Option{F: func(o *config.Options) {
@@ -182,6 +202,18 @@ func WithBasePath(basePath string) config.Option {
 func WithMaxRequestBodySize(bs int) config.Option {
 	return config.Option{F: func(o *config.Options) {
 		o.MaxRequestBodySize = bs
+	}}
+}
+
+// WithMaxHeaderBytes sets the limitation of request header size. Unit: byte
+//
+// If the header size exceeds this value, an ErrHeaderTooLarge error will be returned
+// and the server will respond with HTTP 431 Request Header Fields Too Large.
+//
+// Default: 1MB (1 << 20 bytes)
+func WithMaxHeaderBytes(size int) config.Option {
+	return config.Option{F: func(o *config.Options) {
+		o.MaxHeaderBytes = size
 	}}
 }
 
@@ -214,6 +246,11 @@ func WithKeepAlive(b bool) config.Option {
 // StreamRequestBody enables streaming request body,
 // and calls the handler sooner when given body is
 // larger than the current limit.
+//
+// Note: multipart form requests are still pre-parsed even when streaming is
+// enabled (the body is fully consumed into memory or a temp file before the
+// handler runs). To stream multipart bodies as well, also pass
+// WithDisablePreParseMultipartForm(true).
 func WithStreamBody(b bool) config.Option {
 	return config.Option{F: func(o *config.Options) {
 		o.StreamRequestBody = b
@@ -278,7 +315,8 @@ func WithH2C(enable bool) config.Option {
 	}}
 }
 
-// WithReadBufferSize sets the read buffer size which also limit the header size.
+// WithReadBufferSize sets the size of each read buffer node in standard transport.
+// NOTE: this cannot limit the header size.
 func WithReadBufferSize(size int) config.Option {
 	return config.Option{F: func(o *config.Options) {
 		o.ReadBufferSize = size
@@ -357,6 +395,8 @@ func WithBindConfig(bc *binding.BindConfig) config.Option {
 }
 
 // WithValidateConfig sets validate config.
+//
+// Deprecated: Use WithCustomValidatorFunc with a custom validation function instead.
 func WithValidateConfig(vc *binding.ValidateConfig) config.Option {
 	return config.Option{F: func(o *config.Options) {
 		o.ValidateConfig = vc
@@ -364,16 +404,37 @@ func WithValidateConfig(vc *binding.ValidateConfig) config.Option {
 }
 
 // WithCustomBinder sets customized Binder.
+//
+// Priority: CustomBinder has the highest priority and will override any BindConfig
+// and CustomValidator settings when present. If CustomBinder is set, both the default
+// binder initialization and validator initialization are completely bypassed.
+//
+// Priority order (highest to lowest):
+//  1. CustomBinder (this option) - completely overrides all binding and validation logic
+//  2. CustomValidator/WithCustomValidatorFunc - sets custom validation for default binder
+//  3. BindConfig - configures the default binder behavior
+//  4. ValidateConfig - legacy validation configuration (deprecated)
+//  5. Default binding and validation behavior
+//
+// Note: When CustomBinder is used, validation logic must be implemented within the
+// custom binder's BindAndValidate method, as CustomValidator is ignored.
 func WithCustomBinder(b binding.Binder) config.Option {
 	return config.Option{F: func(o *config.Options) {
 		o.CustomBinder = b
 	}}
 }
 
-// WithCustomValidator sets customized Binder.
+// WithCustomValidator sets customized StructValidator.
+//
+// Deprecated: Use WithCustomValidatorFunc instead.
 func WithCustomValidator(b binding.StructValidator) config.Option {
+	return WithCustomValidatorFunc(binding.MakeValidatorFunc(b))
+}
+
+// WithCustomValidatorFunc sets customized validator function.
+func WithCustomValidatorFunc(vf binding.ValidatorFunc) config.Option {
 	return config.Option{F: func(o *config.Options) {
-		o.CustomValidator = b
+		o.CustomValidator = vf
 	}}
 }
 

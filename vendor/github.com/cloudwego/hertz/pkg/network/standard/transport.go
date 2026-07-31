@@ -21,9 +21,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/cloudwego/gopkg/net/connstate"
 
 	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -31,26 +34,23 @@ import (
 )
 
 type transport struct {
-	// Per-connection buffer size for requests' reading.
-	// This also limits the maximum header size.
-	//
-	// Increase this buffer if your clients send multi-KB RequestURIs
-	// and/or multi-KB headers (for example, BIG cookies).
-	//
-	// Default buffer size is used if not set.
-	readBufferSize   int
-	network          string
-	addr             string
-	keepAliveTimeout time.Duration
-	readTimeout      time.Duration
-	handler          network.OnData
-	tls              *tls.Config
-	listenConfig     *net.ListenConfig
-	OnAccept         func(conn net.Conn) context.Context
-	OnConnect        func(ctx context.Context, conn network.Conn) context.Context
+	// The underlying read buffer is a buffer node list, `readBufferSize` is the size of a single node.
+	// `defaultReadBufferSize` (4KB) is used if not set.
+	readBufferSize           int
+	network                  string
+	addr                     string
+	keepAliveTimeout         time.Duration
+	senseClientDisconnection bool
+	readTimeout              time.Duration
+	handler                  network.OnData
+	tls                      *tls.Config
+	listenConfig             *net.ListenConfig
+	OnAccept                 func(conn net.Conn) context.Context
+	OnConnect                func(ctx context.Context, conn network.Conn) context.Context
 
 	// active connections. it +1 after accept and -1 after handler returns
-	active int32
+	active       int32
+	shuttingDown int32
 
 	mu sync.RWMutex
 	ln net.Listener
@@ -65,24 +65,33 @@ func (t *transport) Listener() net.Listener {
 func (t *transport) serve() (err error) {
 	network.UnlinkUdsFile(t.network, t.addr) //nolint:errcheck
 	t.mu.Lock()
-	if t.listenConfig != nil {
-		t.ln, err = t.listenConfig.Listen(context.Background(), t.network, t.addr)
-	} else {
-		t.ln, err = net.Listen(t.network, t.addr)
+	if t.ln == nil {
+		if t.listenConfig != nil {
+			t.ln, err = t.listenConfig.Listen(context.Background(), t.network, t.addr)
+		} else {
+			t.ln, err = net.Listen(t.network, t.addr)
+		}
+		if err != nil {
+			t.mu.Unlock()
+			return err
+		}
 	}
 	// fix concurrency issue
 	// normally listener must not be changed during serve()
 	ln := t.ln
 	t.mu.Unlock()
-	if err != nil {
-		return err
-	}
 	hlog.SystemLogger().Infof("HTTP server listening on address=%s", ln.Addr().String())
 	for {
 		ctx := context.Background()
 		conn, err := ln.Accept()
 		if err != nil {
-			hlog.SystemLogger().Errorf("Error=%s", err.Error())
+			if atomic.LoadInt32(&t.shuttingDown) > 0 {
+				return nil
+			}
+			if strings.Contains(err.Error(), "closed") {
+				return nil
+			}
+			hlog.SystemLogger().Errorf("Accept err: %v", err)
 			return err
 		}
 		t.updateActive(1)
@@ -101,7 +110,41 @@ func (t *transport) serve() (err error) {
 		if t.OnConnect != nil {
 			ctx = t.OnConnect(ctx, c)
 		}
+
 		go func(ctx context.Context, conn network.Conn) {
+			if t.senseClientDisconnection {
+				// Get the underlying net.Conn for connstate registration
+				var rawConn net.Conn
+				var stdConn *Conn
+				switch v := conn.(type) {
+				case *Conn:
+					stdConn = v
+					rawConn = v.c
+				case *TLSConn:
+					// TLSConn embeds Conn
+					stdConn = &v.Conn
+					rawConn = v.c
+				default:
+					// Other connection types are not supported
+					t.handler(ctx, conn)
+					t.updateActive(-1)
+					return
+				}
+
+				// Register connection close callback
+				var cancelCtx context.CancelFunc
+				ctx, cancelCtx = context.WithCancel(ctx)
+				stater, err := connstate.ListenConnState(rawConn,
+					connstate.WithOnRemoteClosed(connstate.OnRemoteClosed(cancelCtx)),
+				)
+				if err != nil {
+					hlog.SystemLogger().Errorf("ListenConnState failed: %v, connection close detection disabled", err)
+				} else {
+					// Set stater to Conn, it will be cleaned up when Close is called
+					stdConn.stater = stater
+				}
+			}
+
 			t.handler(ctx, conn)
 			t.updateActive(-1)
 		}(ctx, c)
@@ -131,6 +174,8 @@ var (
 )
 
 func (t *transport) Shutdown(ctx context.Context) error {
+	atomic.StoreInt32(&t.shuttingDown, 1)
+
 	defer func() {
 		network.UnlinkUdsFile(t.network, t.addr) //nolint:errcheck
 	}()
@@ -169,14 +214,16 @@ func (t *transport) Shutdown(ctx context.Context) error {
 // For transporter switch
 func NewTransporter(options *config.Options) network.Transporter {
 	return &transport{
-		readBufferSize:   options.ReadBufferSize,
-		network:          options.Network,
-		addr:             options.Addr,
-		keepAliveTimeout: options.KeepAliveTimeout,
-		readTimeout:      options.ReadTimeout,
-		tls:              options.TLS,
-		listenConfig:     options.ListenConfig,
-		OnAccept:         options.OnAccept,
-		OnConnect:        options.OnConnect,
+		readBufferSize:           options.ReadBufferSize,
+		network:                  options.Network,
+		addr:                     options.Addr,
+		keepAliveTimeout:         options.KeepAliveTimeout,
+		readTimeout:              options.ReadTimeout,
+		senseClientDisconnection: options.SenseClientDisconnection,
+		tls:                      options.TLS,
+		ln:                       options.Listener,
+		listenConfig:             options.ListenConfig,
+		OnAccept:                 options.OnAccept,
+		OnConnect:                options.OnConnect,
 	}
 }

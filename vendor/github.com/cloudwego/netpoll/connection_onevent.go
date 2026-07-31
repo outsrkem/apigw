@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !windows
-// +build !windows
 
 package netpoll
 
@@ -21,21 +20,8 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/bytedance/gopkg/util/gopool"
+	"github.com/cloudwego/netpoll/internal/runner"
 )
-
-var runTask = gopool.CtxGo
-
-func setRunner(runner func(ctx context.Context, f func())) {
-	runTask = runner
-}
-
-func disableGopool() error {
-	runTask = func(ctx context.Context, f func()) {
-		go f()
-	}
-	return nil
-}
 
 // ------------------------------------ implement OnPrepare, OnRequest, CloseCallback ------------------------------------
 
@@ -94,7 +80,7 @@ func (c *connection) AddCloseCallback(callback CloseCallback) error {
 	if callback == nil {
 		return nil
 	}
-	var cb = &callbackNode{}
+	cb := &callbackNode{}
 	cb.fn = callback
 	if pre := c.closeCallbacks.Load(); pre != nil {
 		cb.pre = pre.(*callbackNode)
@@ -132,7 +118,7 @@ func (c *connection) onPrepare(opts *options) (err error) {
 
 // onConnect is responsible for executing onRequest if there is new data coming after onConnect callback finished.
 func (c *connection) onConnect() {
-	var onConnect, _ = c.onConnectCallback.Load().(OnConnect)
+	onConnect, _ := c.onConnectCallback.Load().(OnConnect)
 	if onConnect == nil {
 		c.changeState(connStateNone, connStateConnected)
 		return
@@ -141,17 +127,17 @@ func (c *connection) onConnect() {
 		// it never happens because onDisconnect will not lock connecting if c.connected == 0
 		return
 	}
-	var onRequest, _ = c.onRequestCallback.Load().(OnRequest)
+	onRequest, _ := c.onRequestCallback.Load().(OnRequest)
 	c.onProcess(onConnect, onRequest)
 }
 
 // when onDisconnect called, c.IsActive() must return false
 func (c *connection) onDisconnect() {
-	var onDisconnect, _ = c.onDisconnectCallback.Load().(OnDisconnect)
+	onDisconnect, _ := c.onDisconnectCallback.Load().(OnDisconnect)
 	if onDisconnect == nil {
 		return
 	}
-	var onConnect, _ = c.onConnectCallback.Load().(OnConnect)
+	onConnect, _ := c.onConnectCallback.Load().(OnConnect)
 	if onConnect == nil {
 		// no need lock if onConnect is nil
 		// it's ok to force set state to disconnected since onConnect is nil
@@ -170,12 +156,11 @@ func (c *connection) onDisconnect() {
 		return
 	}
 	// OnConnect is not finished yet, return and let onConnect helps to call onDisconnect
-	return
 }
 
 // onRequest is responsible for executing the closeCallbacks after the connection has been closed.
 func (c *connection) onRequest() (needTrigger bool) {
-	var onRequest, ok = c.onRequestCallback.Load().(OnRequest)
+	onRequest, ok := c.onRequestCallback.Load().(OnRequest)
 	if !ok {
 		return true
 	}
@@ -245,7 +230,7 @@ func (c *connection) onProcess(onConnect OnConnect, onRequest OnRequest) (proces
 		if closedBy != none {
 			//  if closed by user when processing, it "may" needs detach
 			needDetach := closedBy == user
-			// Here is a conor case that operator will be detached twice:
+			// Here is a corner case that operator will be detached twice:
 			//   If server closed the connection(client OnHup will detach op first and closeBy=poller),
 			//   and then client's OnRequest function also closed the connection(closeBy=user).
 			// But operator already prevent that detach twice will not cause any problem
@@ -254,7 +239,7 @@ func (c *connection) onProcess(onConnect OnConnect, onRequest OnRequest) (proces
 			return
 		}
 		c.unlock(processing)
-		// Note: Poller's closeCallback call will try to get processing lock failed but here already neer to unlock processing.
+		// Note: Poller's closeCallback call will try to get processing lock failed but here already near to unlock processing.
 		//       So here we need to check connection state again, to avoid connection leak
 		// double check close state
 		if c.status(closing) != 0 && c.lock(processing) {
@@ -270,17 +255,17 @@ func (c *connection) onProcess(onConnect OnConnect, onRequest OnRequest) (proces
 		}
 		// task exits
 		panicked = false
-		return
-	}
+	} // end of task closure func
+
 	// add new task
-	runTask(c.ctx, task)
+	runner.RunTask(c.ctx, task)
 	return true
 }
 
 // closeCallback .
 // It can be confirmed that closeCallback and onRequest will not be executed concurrently.
 // If onRequest is still running, it will trigger closeCallback on exit.
-func (c *connection) closeCallback(needLock bool, needDetach bool) (err error) {
+func (c *connection) closeCallback(needLock, needDetach bool) (err error) {
 	if needLock && !c.lock(processing) {
 		return nil
 	}
@@ -290,7 +275,7 @@ func (c *connection) closeCallback(needLock bool, needDetach bool) (err error) {
 			logger.Printf("NETPOLL: closeCallback[%v,%v] detach operator failed: %v", needLock, needDetach, err)
 		}
 	}
-	var latest = c.closeCallbacks.Load()
+	latest := c.closeCallbacks.Load()
 	if latest == nil {
 		return nil
 	}
