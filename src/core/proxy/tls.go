@@ -27,13 +27,13 @@ func BuildtlsCfg(lcCaID string) (*tls.Config, error) {
 		return tlsCfg, nil
 	}
 
-	pemText, err := utils.Base64ToCert(b64Str)
+	cert, err := utils.Base64ToCert(b64Str)
 	if err != nil {
 		return nil, err
 	}
 
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM([]byte(pemText)) {
+	if !pool.AppendCertsFromPEM(cert) {
 		return nil, errors.New("CA certificate PEM format is invalid")
 	}
 

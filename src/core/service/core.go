@@ -1,10 +1,9 @@
+// src/core/service/core.go
 package service
 
 import (
 	"apigw/src/cache"
-	"apigw/src/models"
 	"context"
-	"strings"
 )
 
 // Route matching mode constants
@@ -13,6 +12,9 @@ const (
 	RouteModePrefix = "PREFIX" // Prefix longest matching mode
 	RouteMethodAny  = "Any"    // Represent matching all HTTP request methods
 )
+
+// RouteSvc global singleton RouteService instance
+var RouteSvc *RouteService
 
 // RouteService provides route matching capabilities for gateway requests
 type RouteService struct {
@@ -32,37 +34,12 @@ func NewRouteService(c *cache.GatewayCache) *RouteService {
 // path: request uri path from client
 // method: HTTP request method
 // return: matched route pointer, nil if no route matched; nil error always
-func (s *RouteService) MatchRoute(ctx context.Context, path, method string) (*models.OrmApiInterface, error) {
-	s.globalCache.RLock()
-	defer s.globalCache.RUnlock()
-
-	allRoutes := s.globalCache.GetAllActiveRoutes()
-	var prefixMatchRoute *models.OrmApiInterface
-
-	// Step 1: Exact match with highest priority
-	for _, item := range allRoutes {
-		if item.Method != RouteMethodAny && item.Method != method {
-			continue
-		}
-		if item.Mode == RouteModeExact && item.ReqUri == path {
-			return item, nil
-		}
-	}
-
-	// Step 2: Longest prefix matching
-	for _, item := range allRoutes {
-		if item.Method != RouteMethodAny && item.Method != method {
-			continue
-		}
-		if item.Mode == RouteModePrefix && strings.HasPrefix(path, item.ReqUri) {
-			// update to longer prefix route
-			if prefixMatchRoute == nil || len(item.ReqUri) > len(prefixMatchRoute.ReqUri) {
-				prefixMatchRoute = item
-			}
-		}
-	}
-	return prefixMatchRoute, nil
+func (s *RouteService) MatchRoute(ctx context.Context, host, path, method string) (*cache.CachedRoute, error) {
+	route := s.globalCache.MatchRoute(host, path, method)
+	return route, nil
 }
 
-// RouteSvc global singleton RouteService instance
-var RouteSvc *RouteService
+// GetChannel 获取通道
+func (s *RouteService) GetChannel(lcID string) *cache.CachedChannel {
+	return s.globalCache.GetChannel(lcID)
+}

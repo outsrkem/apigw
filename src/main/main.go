@@ -1,3 +1,4 @@
+// src/main/main.go
 package main
 
 import (
@@ -57,13 +58,14 @@ func main() {
 	svc := server.Default(
 		server.WithHostPorts(app.Bind),
 		server.WithMaxRequestBodySize(200<<20), // Max request body limit: 200MB
+		server.WithRedirectTrailingSlash(false),
 		server.WithExitWaitTime(0*time.Second))
 
 	route.Middleware(svc)
 	session.InitSession(svc, &rcfg)
 	route.ApigwRoute(svc)
 	route.AuthRouter(svc, &auth)
-	route.ProxyRoute(svc, &auth)
+	route.ProxyRoute(svc)
 
 	// Block and start http service
 	svc.Spin()

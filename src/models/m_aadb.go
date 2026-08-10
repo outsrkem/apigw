@@ -9,12 +9,23 @@ import (
 	"gorm.io/gorm"
 )
 
+type ApiDomainDao struct{ db *gorm.DB }
+type ApiGroupDao struct{ db *gorm.DB }
+type ApiInterfaceDao struct{ db *gorm.DB }
+type LcCaDao struct{ db *gorm.DB }
+type LoadChannelDao struct{ db *gorm.DB }
+
 // DB encapsulates gorm instance, logger and environment information for database operations
 type DB struct {
-	db          *gorm.DB      // GORM database instance
-	Klog        *logrus.Entry // Log object for recording runtime information
-	instanceId  string        // Unique identification of service instance
-	CurrentTime int64         // Unified timestamp used in business logic
+	db           *gorm.DB      // GORM database instance
+	Klog         *logrus.Entry // Log object for recording runtime information
+	instanceId   string        // Unique identification of service instance
+	CurrentTime  int64         // Unified timestamp used in business logic
+	Domain       IApiDomainDao
+	ApiGroup     IApiGroupDao
+	ApiInterface IApiInterfaceDao
+	LcCa         ILcCaDao
+	LoadChannel  ILoadChannelDao
 }
 
 // NewDBModel creates and initializes a DB operation instance
@@ -30,19 +41,12 @@ func NewDBModel(instanceId string) (*DB, error) {
 	return _t, nil
 }
 
-// SetKlog binds log entry to DB instance, supports chained calls
-func (d *DB) SetKlog(klog *logrus.Entry) *DB {
-	d.Klog = klog
-	return d
-}
-
-// SetCurrentTime customizes unified business timestamp, supports chained calls
-func (d *DB) SetCurrentTime(currentTime int64) *DB {
-	d.CurrentTime = currentTime
-	return d
-}
-
-// WithInstance returns gorm query builder filtered by current instanceId
-func (d *DB) WithInstance() *gorm.DB {
-	return d.db.Where("instance_id = ?", d.instanceId)
+func NewSystemDBModel() (*DB, error) {
+	_t := &DB{db: mysql.OrmDB}
+	_t.Domain = &ApiDomainDao{db: _t.db}
+	_t.ApiGroup = &ApiGroupDao{db: _t.db}
+	_t.ApiInterface = &ApiInterfaceDao{db: _t.db}
+	_t.LcCa = &LcCaDao{db: _t.db}
+	_t.LoadChannel = &LoadChannelDao{db: _t.db}
+	return _t, nil
 }

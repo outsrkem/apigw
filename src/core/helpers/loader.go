@@ -13,18 +13,34 @@ func LoadAndRefreshRoute(c *cache.GatewayCache) error {
 		return err
 	}
 
-	list, _, err := dao.ListApiInterface(99999, 0)
+	// 1. 加载分组
+	groups, _, err := dao.ListApiGroup(99999, 0)
 	if err != nil {
 		return err
 	}
-	// Filter: only keep enabled and published api routes
+
+	// 2. 加载域名
+	domains, _, err := dao.ListApiDomain(99999, 0)
+	if err != nil {
+		return err
+	}
+
+	// 3. 加载路由
+	routes, _, err := dao.ListApiInterface(99999, 0)
+	if err != nil {
+		return err
+	}
+
+	// 4. 过滤有效路由
 	var valid []*models.OrmApiInterface
-	for _, item := range list {
-		if item.Status == 1 && item.PublishStatus == 2 {
+	for _, item := range routes {
+		if item.Status == 1 && item.Publish == 2 {
 			valid = append(valid, item)
 		}
 	}
-	c.RefreshRoutes(valid)
+
+	// 5. 构建域名索引并刷新路由
+	c.RefreshRoute(groups, domains, valid)
 	return nil
 }
 
@@ -39,6 +55,6 @@ func LoadAndRefreshChannel(c *cache.GatewayCache) error {
 	if err != nil {
 		return err
 	}
-	c.RefreshChannels(list)
+	c.RefreshChannel(list)
 	return nil
 }

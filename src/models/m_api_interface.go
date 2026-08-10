@@ -1,10 +1,61 @@
 package models
 
-import "time"
+import (
+	"apigw/src/pkg/common"
+	"errors"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+const (
+	StatusDisable     int8 = 0 // 禁用
+	StatusEnable      int8 = 1 // 启用
+	PublishUnReleased int8 = 0 // 未发布
+	PublishTesting    int8 = 1 // 测试中
+	PublishReleased   int8 = 2 // 已发布
+	PublishOffline    int8 = 3 // 已下线
+)
+
+type IApiInterfaceDao interface {
+	OfflineApiById(apiId string) error
+	OnlineApiById(apiId string) error
+	UpdateApiStatusById(apiID string, status int8) error
+}
+
+// UpdateApiStatusById updates api enable/disable status by api id
+func (d *ApiInterfaceDao) UpdateApiStatusById(apiID string, status int8) error {
+	updateTime := common.CreateTimestamp()
+	return d.db.Model(&OrmApiInterface{}).
+		Where("id = ?", apiID).Updates(map[string]any{
+		"status":      status,
+		"update_time": updateTime,
+	}).Error
+}
+
+// OfflineApiById temporarily offline single api, set publish_status to 3
+func (d *ApiInterfaceDao) OfflineApiById(apiId string) error {
+	now := common.CreateTimestamp()
+	return d.db.Model(&OrmApiInterface{}).Where("id = ?", apiId).
+		Updates(map[string]any{
+			"publish":     PublishOffline,
+			"update_time": now,
+		}).Error
+}
+
+// OnlineApiById restore offline api online, set publish_status to 2
+func (d *ApiInterfaceDao) OnlineApiById(apiId string) error {
+	now := common.CreateTimestamp()
+	return d.db.Model(&OrmApiInterface{}).Where("id = ?", apiId).
+		Updates(map[string]any{
+			"publish":     PublishReleased,
+			"update_time": now,
+		}).Error
+}
 
 // CreateApiInterface insert a new api interface record into database
 func (d *DB) CreateApiInterface(item *OrmApiInterface) error {
-	now := time.Now().UnixMilli()
+	now := common.CreateTimestamp()
 	item.CreateTime = now
 	item.UpdateTime = now
 	return d.db.Create(item).Error
@@ -20,18 +71,18 @@ func (d *DB) ListApiInterfaceByGroupID(groupID string) ([]*OrmApiInterface, erro
 // ListApiInterfaceByLcID query all apis bound to specified load channel uuid
 func (d *DB) ListApiInterfaceByLcID(lcID string) ([]*OrmApiInterface, error) {
 	var list []*OrmApiInterface
-	err := d.db.Where("lc_id = ?", lcID).Find(&list).Error
+	err := d.db.Where("lc_id = ?", lcID).Order("kid DESC").Find(&list).Error
 	return list, err
 }
 
 // UpdateApiInterface update existing api interface record
-func (d *DB) UpdateApiInterface(item *OrmApiInterface) error {
-	item.UpdateTime = time.Now().UnixMilli()
-	return d.db.Save(item).Error
+func (d *DB) UpdateApiInterface(id string, data map[string]any) error {
+	data["update_time"] = common.CreateTimestamp()
+	return d.db.Model(&OrmApiInterface{}).Where("id=?", id).Updates(data).Error
 }
 
 // DeleteApiInterface physically delete api record by primary id
-func (d *DB) DeleteApiInterface(id int64) error {
+func (d *DB) DeleteApiInterface(id string) error {
 	return d.db.Delete(&OrmApiInterface{}, "id = ?", id).Error
 }
 
@@ -45,8 +96,21 @@ func (d *DB) ListApiInterface(limit, offset int) ([]*OrmApiInterface, int64, err
 	if err != nil {
 		return nil, 0, err
 	}
-	err = query.Limit(limit).Offset(offset).Find(&list).Error
+	err = query.Limit(limit).Offset(offset).Order("kid DESC").Find(&list).Error
 	return list, total, err
+}
+
+// GetApiById query complete latest single api data by unique api id
+func (d *DB) GetApiById(apiId string) (*OrmApiInterface, error) {
+	var item OrmApiInterface
+	err := d.db.Where("id = ?", apiId).First(&item).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &item, nil
 }
 
 // ListAllEnabledApiInterface query all apis which are enabled and officially published
@@ -55,46 +119,6 @@ func (d *DB) ListAllEnabledApiInterface() ([]*OrmApiInterface, error) {
 	var list []*OrmApiInterface
 	err := d.db.Where("status = ? AND publish_status = ?", 1, 2).Find(&list).Error
 	return list, err
-}
-
-// OfflineApiById temporarily offline single api, set publish_status to 3
-func (d *DB) OfflineApiById(apiId string) error {
-	now := time.Now().UnixMilli()
-	return d.db.Model(&OrmApiInterface{}).
-		Where("id = ?", apiId).Updates(map[string]any{
-		"publish_status": 3,
-		"update_time":    now,
-	}).Error
-}
-
-// OnlineApiById restore offline api online, set publish_status to 2
-func (d *DB) OnlineApiById(apiId string) error {
-	now := time.Now().UnixMilli()
-	return d.db.Model(&OrmApiInterface{}).Where("id = ?", apiId).
-		Updates(map[string]any{
-			"publish_status": 2,
-			"update_time":    now,
-		}).Error
-}
-
-// DisableApiById permanently disable api, set status to 0
-func (d *DB) DisableApiById(apiId string) error {
-	now := time.Now().UnixMilli()
-	return d.db.Model(&OrmApiInterface{}).Where("id = ?", apiId).
-		Updates(map[string]any{
-			"status":      0,
-			"update_time": now,
-		}).Error
-}
-
-// GetApiById query complete latest single api data by unique api id
-func (d *DB) GetApiById(apiId string) (*OrmApiInterface, error) {
-	var item OrmApiInterface
-	err := d.db.Where("id = ?", apiId).First(&item).Error
-	if err != nil {
-		return nil, err
-	}
-	return &item, nil
 }
 
 // BatchOfflineApiByIds batch offline apis, set publish_status to 3
