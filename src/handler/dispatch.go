@@ -58,11 +58,28 @@ func getRealClientIP(c *app.RequestContext) string {
 		return strings.TrimSpace(xRealIP)
 	}
 
-	xff := string(c.Request.Header.Get("X-Forwarded-For"))
+	xff := c.Request.Header.Get("X-Forwarded-For")
 	if xff != "" {
 		ips := strings.Split(xff, ",")
 		return strings.TrimSpace(ips[0])
 	}
 
 	return c.RemoteAddr().String()
+}
+
+const HeaderApigwPortalHost = "X-Apigw-Portal-Host"
+
+// GetMatchHost get host for gateway route matching
+// priority: X-Apigw-Portal-Host > request.Host
+// strip port number from raw host
+func GetMatchHost(c *app.RequestContext) string {
+	if h := strings.TrimSpace(c.Request.Header.Get(HeaderApigwPortalHost)); h != "" {
+		return h
+	}
+	host := string(c.Request.Host())
+	// cut port
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	return host
 }

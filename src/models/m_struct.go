@@ -18,7 +18,8 @@ func (*OrmApiGroup) TableName() string {
 // OrmApiDomain 域名配置表
 type OrmApiDomain struct {
 	kid        int64  `gorm:"primaryKey;column:kid"`
-	ID         string `gorm:"column:id"`          // 分组id
+	ID         string `gorm:"column:id"`          // uuid
+	GroupID    string `gorm:"column:group_id"`    // 分组id
 	Name       string `gorm:"column:name"`        // 域名
 	SslStatus  int8   `gorm:"column:ssl_status"`  // SSL状态（0-关闭，1-开启）
 	SslCert    string `gorm:"column:ssl_cert"`    // SSL证书内容
@@ -35,16 +36,15 @@ func (*OrmApiDomain) TableName() string {
 // OrmLoadChannel 负载通道表
 type OrmLoadChannel struct {
 	kid        int64  `gorm:"primaryKey;column:kid"`
-	ID         string `gorm:"column:id"`          // 负载通道id
-	Name       string `gorm:"column:name"`        // 通道名称（如用户服务集群）
-	Backend    string `gorm:"column:backend"`     // 后端地址列表（逗号分隔）
-	Strategy   int8   `gorm:"column:strategy"`    // 负载策略（1-轮询，2-加权轮询，3-IP哈希）
-	Timeout    int    `gorm:"column:timeout"`     // 后端超时时间（毫秒）
-	HcInterval int    `gorm:"column:hcinterval"`  // 健康检查间隔（毫秒）
-	Status     int8   `gorm:"column:status"`      // 状态（0-禁用，1-启用）
-	CaCert     string `gorm:"column:ca_cert"`     // 后端CA证书ID
-	CreateTime int64  `gorm:"column:create_time"` // 创建时间戳
-	UpdateTime int64  `gorm:"column:update_time"` // 更新时间戳
+	ID         string `gorm:"column:id"`                   // 负载通道id
+	Name       string `gorm:"column:name"`                 // 通道名称（如用户服务集群）
+	Backend    string `gorm:"column:backend"`              // 后端地址列表（逗号分隔）
+	Timeout    int    `gorm:"column:timeout"`              // 后端超时时间（毫秒）
+	HcInterval int    `gorm:"column:hcinterval"`           // 健康检查间隔（毫秒）
+	Status     int8   `gorm:"column:status"`               // 状态（0-禁用，1-启用）
+	CaCert     string `gorm:"column:ca_cert;default:null"` // 后端CA证书ID
+	CreateTime int64  `gorm:"column:create_time"`          // 创建时间戳
+	UpdateTime int64  `gorm:"column:update_time"`          // 更新时间戳
 }
 
 func (*OrmLoadChannel) TableName() string {
@@ -55,7 +55,10 @@ func (*OrmLoadChannel) TableName() string {
 type OrmLcCa struct {
 	kid        int64  `gorm:"primaryKey;column:kid"`
 	ID         string `gorm:"column:id"`          // 证书ID
-	Name       string `gorm:"column:name"`        // 证书CN
+	Name       string `gorm:"column:name"`        // 证书名称
+	CN         string `gorm:"column:CN"`          // 证书CN
+	NotBefore  int64  `gorm:"column:NotBefore"`   // 证书生效起始时间戳
+	NotAfter   int64  `gorm:"column:NotAfter"`    // 证书过期结束时间戳
 	Cert       string `gorm:"column:cert"`        // 后端CA证书
 	CreateTime int64  `gorm:"column:create_time"` // 创建时间戳
 	UpdateTime int64  `gorm:"column:update_time"` // 更新时间戳
@@ -67,21 +70,22 @@ func (*OrmLcCa) TableName() string {
 
 // OrmApiInterface API详情表
 type OrmApiInterface struct {
-	kid           int64  `gorm:"primaryKey;column:kid"`
-	ID            string `gorm:"primaryKey;column:id"`  // API ID
-	GroupID       string `gorm:"column:group_id"`       // 所属分组ID
-	Protocol      string `gorm:"column:protocol"`       // 后端协议
-	Method        string `gorm:"column:method"`         // HTTP方法
-	ReqUri        string `gorm:"column:req_uri"`        // API路径
-	BackendUri    string `gorm:"column:backend_uri"`    // 后端api
-	Auth          string `gorm:"column:auth"`           // 认证类型
-	Mode          string `gorm:"column:mode"`           // API的匹配方式prefix：前缀匹配,exact：精确匹配
-	LcID          string `gorm:"column:lc_id"`          // 关联负载通道ID
-	RateLimit     int    `gorm:"column:rate_limit"`     // 接口限流（QPS，0-不限流）
-	Status        int8   `gorm:"column:status"`         // 状态（0-禁用，1-启用）
-	PublishStatus int8   `gorm:"column:publish_status"` // 发布状态（0-未发布，1-测试中，2-已发布，3-已下线）
-	CreateTime    int64  `gorm:"column:create_time"`    // 创建时间戳
-	UpdateTime    int64  `gorm:"column:update_time"`    // 更新时间戳
+	kid        int64  `gorm:"primaryKey;column:kid"`
+	ID         string `gorm:"primaryKey;column:id"`     // API ID
+	GroupID    string `gorm:"column:group_id"`          // 所属分组ID
+	Name       string `gorm:"column:name;default:null"` // 接口名称
+	Protocol   string `gorm:"column:protocol"`          // 后端协议
+	Method     string `gorm:"column:method"`            // HTTP方法
+	ReqUri     string `gorm:"column:req_uri"`           // API路径
+	BackendUri string `gorm:"column:backend_uri"`       // 后端api
+	Auth       string `gorm:"column:auth"`              // 认证类型
+	Mode       string `gorm:"column:mode"`              // API的匹配方式prefix：前缀匹配,exact：精确匹配
+	LcID       string `gorm:"column:lc_id"`             // 关联负载通道ID
+	RateLimit  int    `gorm:"column:rate_limit"`        // 接口限流（QPS，0-不限流）
+	Status     int8   `gorm:"column:status"`            // 状态（0-禁用，1-启用）
+	Publish    int8   `gorm:"column:publish"`           // 发布状态（0-未发布，1-测试中，2-已发布，3-已下线）
+	CreateTime int64  `gorm:"column:create_time"`       // 创建时间戳
+	UpdateTime int64  `gorm:"column:update_time"`       // 更新时间戳
 }
 
 func (*OrmApiInterface) TableName() string {

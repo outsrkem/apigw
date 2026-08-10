@@ -1,13 +1,32 @@
 package models
 
-import "time"
+import (
+	"apigw/src/pkg/common"
+	"time"
+)
 
-// CreateApiDomain creates a new domain configuration record
-func (d *DB) CreateApiDomain(item *OrmApiDomain) error {
-	now := time.Now().UnixMilli()
+type IApiDomainDao interface {
+	Create(item *OrmApiDomain) error
+	Delete(id string) (int64, error)
+	ListByGroupId(groupID string) ([]*OrmApiDomain, error)
+}
+
+func (ad *ApiDomainDao) Create(item *OrmApiDomain) error {
+	now := common.CreateTimestamp()
 	item.CreateTime = now
 	item.UpdateTime = now
-	return d.db.Create(item).Error
+	return ad.db.Create(item).Error
+}
+
+func (ad *ApiDomainDao) Delete(id string) (int64, error) {
+	result := ad.db.Delete(&OrmApiDomain{}, "id = ?", id)
+	return result.RowsAffected, result.Error
+}
+
+func (ad *ApiDomainDao) ListByGroupId(groupID string) ([]*OrmApiDomain, error) {
+	var list []*OrmApiDomain
+	err := ad.db.Where("group_id = ?", groupID).Order("kid DESC").Find(&list).Error
+	return list, err
 }
 
 // GetApiDomainByID queries domain record by primary key id
@@ -30,22 +49,10 @@ func (d *DB) GetApiDomainByName(name string) (*OrmApiDomain, error) {
 	return &data, nil
 }
 
-// ListApiDomainByGroupID queries domain list bound to specified group uuid
-func (d *DB) ListApiDomainByGroupID(groupID string) ([]*OrmApiDomain, error) {
-	var list []*OrmApiDomain
-	err := d.db.Where("group_id = ?", groupID).Find(&list).Error
-	return list, err
-}
-
 // UpdateApiDomain updates existing domain configuration record
 func (d *DB) UpdateApiDomain(item *OrmApiDomain) error {
 	item.UpdateTime = time.Now().UnixMilli()
 	return d.db.Save(item).Error
-}
-
-// DeleteApiDomain deletes domain record by primary key id
-func (d *DB) DeleteApiDomain(id int64) error {
-	return d.db.Delete(&OrmApiDomain{}, "id = ?", id).Error
 }
 
 // ListApiDomain executes paginated domain query, returns record list and total count
@@ -58,7 +65,7 @@ func (d *DB) ListApiDomain(limit, offset int) ([]*OrmApiDomain, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	err = query.Limit(limit).Offset(offset).Find(&list).Error
+	err = query.Limit(limit).Offset(offset).Order("kid DESC").Find(&list).Error
 	return list, total, err
 }
 
