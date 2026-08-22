@@ -5,9 +5,11 @@ import (
 	"apigw/src/cache"
 	"apigw/src/config"
 	"apigw/src/core/helpers"
+	"apigw/src/core/proxy"
 	"apigw/src/core/service"
 	"apigw/src/database/mysql"
 	"apigw/src/database/redis"
+	"apigw/src/pkg/redisx"
 	"apigw/src/pkg/session"
 	"apigw/src/route"
 	"apigw/src/slog"
@@ -27,6 +29,7 @@ func main() {
 	app := cfg.Apigw.App
 	rcfg := cfg.Apigw.Redis
 	auth := cfg.Apigw.Auth
+	proxy.AuthBackendUrl = auth.Backend.Host
 
 	mysql.InitDB(&cfg.Apigw)
 	redis.InitRedis(&cfg.Apigw.Redis)
@@ -34,6 +37,8 @@ func main() {
 	// Initialize gateway runtime cache instance and set as global singleton
 	cacheIns := cache.NewGatewayCache()
 	cache.SetGlobalCache(cacheIns)
+
+	redisx.Manager = redisx.NewRedisManager(redis.Rdb)
 
 	// Initialize global route matching service instance
 	service.RouteSvc = service.NewRouteService(cacheIns)

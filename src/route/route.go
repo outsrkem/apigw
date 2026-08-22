@@ -30,7 +30,7 @@ func AuthRouter(h *server.Hertz, auth *cfgtypes.Auth) {
 	klog.Infof("Auth backend address: %s", host)
 
 	const logInPath = "/internal/v1/uias/user/signin"
-	h.POST("/api/uias/v1/user/signin", userauth.UiasSignin(host, logInPath))
+	h.POST("/api/uias/v1/user/signin", userauth.UiasSignIn(host, logInPath))
 	h.POST("/api/uias/v1/user/logout", userauth.UiasLogout())
 }
 
