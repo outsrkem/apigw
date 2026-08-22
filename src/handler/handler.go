@@ -35,7 +35,7 @@ func ProxyDispatch() func(ctx context.Context, c *app.RequestContext) {
 		}
 		klog.Debugf("route match success, route id:%s,  lc id:%s, auth type:%s", route.ID, route.LcID, route.Auth)
 
-		// Step 4: 选择后端节点
+		// Step 4: Select backend node
 		target, err := proxy.SelectTarget(route.LcID)
 		if err != nil {
 			klog.Errorf("select backend node failed | route_id:%s | client_ip:%s | err:%v", route.ID, clientIP, err)
@@ -44,7 +44,7 @@ func ProxyDispatch() func(ctx context.Context, c *app.RequestContext) {
 		}
 		klog.Infof("load balance select node success | backend_node:%s", target)
 
-		// Step 5: 获取绑定到当前路线的负载通道配置
+		// Step 5: Get load‑balancer channel configuration bound to current route
 		channel := service.RouteSvc.GetChannel(route.LcID)
 		if channel == nil {
 			klog.Errorf("load channel not found | lc_id:%s | route_id:%s", route.LcID, route.ID)

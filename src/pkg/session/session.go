@@ -2,7 +2,9 @@ package session
 
 import (
 	"apigw/src/cfgtypes"
+	"apigw/src/pkg/consts"
 	"apigw/src/slog"
+	"net/http"
 	"strconv"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -14,7 +16,7 @@ import (
 
 const (
 	CookieName           = "session"
-	DefaultSessionMaxAge = 60 * 30
+	DefaultSessionMaxAge = consts.CookieMaxAgeSec
 	RedisNetwork         = "tcp"
 	RedisSecretKey       = "wderqeyJ2Y29kZSI6ImxkbG4ifQ.Xr-Lbg.ojkAcx7BZx7590luvEIvhYASA_8"
 	CookieSecret         = "secret"
@@ -25,6 +27,7 @@ var GlobalSessionOption = sessions.Options{
 	MaxAge:   DefaultSessionMaxAge,
 	Path:     "/",
 	HttpOnly: true,
+	SameSite: http.SameSiteStrictMode,
 }
 
 type redisCfg struct {
