@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strconv"
+	"time"
 	"unicode"
 )
 
@@ -58,4 +59,30 @@ func IsValid32UUID(uuid string) bool {
 	}
 
 	return true
+}
+
+// CalcOneThirdTimePoint Calculate the token refresh time
+func CalcOneThirdTimePoint(expTs int64) int64 {
+	return calcOneThirdTimePoint(expTs, time.Now().UnixMilli())
+}
+
+func calcOneThirdTimePoint(expTs int64, nowTs int64) int64 {
+	if expTs <= nowTs {
+		return nowTs
+	}
+	remain := expTs - nowTs
+	oneThird := remain / 3
+	targetTs := nowTs + oneThird
+	return targetTs
+}
+
+// Rfc1123ToMilli parses RFC1123 formatted time string to unix millisecond timestamp.
+// Example input: "Sun, 30 Aug 2026 10:28:50 GMT"
+// Note: Timezone identifier in input must be GMT. Returned timestamp is in UTC.
+func Rfc1123ToMilli(s string) (int64, error) {
+	t, err := time.Parse(time.RFC1123, s)
+	if err != nil {
+		return 0, err
+	}
+	return t.UnixMilli(), nil
 }
